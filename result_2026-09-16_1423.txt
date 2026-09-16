@@ -1,0 +1,131 @@
+================================================================================
+RESULT — P1C Credit Limit (+ hardening P1B) — 2026-09-16 14:23 (local) / 21:23 site
+================================================================================
+Status : DONE (code + tests verified on the real site) — COMMIT PENDING user approval
+Commit : chưa có cho P1C. Baseline đã commit: eb75222 (P0+P1A+P1B), 0355d6b (vá refund/NULL),
+         0e89ce7 (bỏ track __pycache__).
+Site   : ERPNext v16, Mac frappe_docker, site `frontend` (không hard-code company/tỷ lệ)
+
+--------------------------------------------------------------------------------
+A. DELIVERABLES (prompt P1C phần A + B)
+--------------------------------------------------------------------------------
+NEW  apps/feed_dealer/feed_dealer/credit_limit.py
+     - validate_credit_limit(customer, order_value, *, check_draft, for_submit, exclude_order)
+       = MỘT hàm dùng chung, đúng công thức plan_final_v2.2_mustfix.md MUST-3:
+         committed = SUM(Batch Debt.outstanding, docstatus=1, status != 'Đã trả')
+                   + SUM(SO.grand_total, docstatus=1, status not in (Completed,Stopped), per_billed<100)
+                   + SUM(SO.grand_total, docstatus=0)            [draft — chỉ khi check_draft]
+         reject khi order_value > approved_limit - committed
+     - credit_position / outstanding_debt / submitted_uninvoiced_orders / draft_orders (view đọc)
+     - @whitelist: get_credit_position, check_order_credit — ĐỀU qua _require_credit_read()
+       (frappe.has_permission("Credit Score","read",doc=...), fail closed)
+NEW  apps/feed_dealer/feed_dealer/events/sales_order.py
+     - validate()        : draft/update, check_draft=True (đếm cả draft khác)
+     - before_submit()   : check_draft=False + for_submit=True (row lock Credit Score, re-check atomic)
+MOD  .../doctype/credit_score/credit_score.py
+     - score = clamp(50 + 5×on_time − 10×late + 2×batches, 0..100), tier 4 hạng (deterministic, no AI)
+     - limit_by_score = %hạng (Feed Dealer Settings) × TB grand_total hoá đơn đã submit (không return)
+     - limit_by_collateral (Collateral.effective_value), limit_by_guarantee (nếu site có field),
+       seasonal_limit_cap (input tay) → credit_limit = manual_limit nếu override, ngược lại MIN(các
+       chiều > 0)
+     - override: CHỈ Manager/System Manager, bắt buộc lý do + hạn mức > 0, tự stamp override_by/date
+     - @whitelist recalculate_credit_score, tier_of_score
+MOD  .../doctype/collateral/collateral.py — effective_value = estimated_value × 0.7 (nhãn ×0.7)
+MOD  hooks.py — doc_events thêm "Sales Order": {validate, before_submit},
+     "Unreconcile Payment": {on_submit}
+NEW  apps/feed_dealer/feed_dealer/events/unreconcile_payment.py — đảo allocation khi ERPNext delink
+     payment khỏi invoice (nguồn: UnreconcilePayment.on_submit → unlink_ref_doc_from_payment_entries)
+MOD  events/payment_entry.py — _open_debts(customer, for_update=False); on_submit gọi
+     for_update=True (row lock) + docstring cập nhật
+NEW  apps/feed_dealer/feed_dealer/setup/p1c_acceptance.py — T1..T10 (+ cleanup riêng)
+
+--------------------------------------------------------------------------------
+B. ACCEPTANCE (chạy trên site thật sau clear-cache; log tail ghi bên dưới)
+--------------------------------------------------------------------------------
+P1C 10/10 PASS  (mới)
+  T1  draft orders hold credit      : 2 draft 20,000,000 giữ hạn mức 50,000,000; draft thứ 3 bị từ chối
+                                      ("Còn khả dụng: 10,000,000đ")
+  T2  invoice before submit         : draft 30,000,000 tạo xong mới xuất hoá đơn 30,000,000 → submit
+                                      bị từ chối (nợ 30tr + đơn 30tr > 50tr)
+  T3  atomic submit re-check        : hạ hạn mức 50tr→30tr khi 2 draft đang chờ → đơn 1 submit được,
+                                      đơn 2 bị từ chối và **giữ docstatus=0** (chặn TRƯỚC khi ghi)
+  T4  no Credit Score = blocked     : khách chưa có Credit Score bị chặn kèm message chỉ rõ cần tạo gì;
+                                      sau khi cấp hạn mức thì đơn 1,000,000 được nhận
+  T5  payment frees credit          : nợ 40tr → draft 30tr bị từ chối; trả hết nợ → đơn 30tr submit được
+  T6  override manager-only + audit  : limit tính ra 0 → bị chặn; Staff bị chặn ở gate (và không persist
+                                      được); Manager thiếu lý do / thiếu hạn mức cũng bị chặn; override
+                                      5,000,000 có override_by = manager + override_date; 4tr ok, 6tr chặn
+  T7  tier boundaries               : 0→Đồng 39→Đồng 40→Bạc 59→Bạc 60→Vàng 79→Vàng 80→Kim Cương 100→Kim Cương
+  T8  limit from history            : 2 hoá đơn 10tr đã trả → score 60 / Vàng → limit_by_score
+                                      8,000,000 (10tr × 80%); 7tr nhận, 9tr chặn
+  T9  one rule for hook + API       : hook và API (chạy bằng user Staff) ra **cùng một thông điệp** từ
+                                      chối cho 31,000,000 / hạn mức 30,000,000; cùng function object
+  T10 API refuses foreign customer  : Farmer gọi API cho khách khác → "Bạn không có quyền xem hạn mức
+                                      tín dụng của khách ..."; Manager đọc được (5,000,000)
+
+P1B 9/9 PASS  (thêm 2 test hardening)
+  T8  unreconcile reverses          : Unreconcile Payment delink ACC-PAY-2026-00150 khỏi ACC-SINV-2026-…;
+                                      allocation docstatus=2, debt về 1,000,000 / "Chưa trả", batch total
+                                      khôi phục, **Payment Entry vẫn submitted**
+  T9  FIFO read locks rows          : spy thấy `for_update=True` khi submit Payment Entry thật; connection
+                                      thứ hai `SELECT … FOR UPDATE` → (1205, 'Lock wait timeout exceeded')
+
+P0 9/9 PASS · P1A 8/8 PASS  (không regress)
+
+Lệnh tái lập:
+  python3 .agent/push_to_mac.py apps/feed_dealer /Users/hoang/htdocs/erpnext/app_cam feed_dealer
+  python3 .agent/bench.py --site frontend clear-cache      # hooks.py đổi ⇒ BẮT BUỘC
+  python3 .agent/bench.py --site frontend execute feed_dealer.setup.p1c_acceptance.run --capture
+  (tương tự cho p0/p1a/p1b_acceptance.run; đổi .run → .debug để xem traceback thật)
+
+--------------------------------------------------------------------------------
+C. MUTATION CHECK (làm hỏng code → test phải đỏ; đã khôi phục nguyên trạng)
+--------------------------------------------------------------------------------
+1. before_submit của Sales Order trả sớm          → P1C T2, T3 FAIL (T1/T4–T9 vẫn PASS, đúng dự đoán vì
+                                                     chúng không đi qua gate submit)
+2. unreconcile_payment.on_submit trả sớm          → P1B T8 FAIL
+3. _open_debts(..., for_update=False) tại chỗ gọi  → P1B T9 FAIL với
+   "AssertionError: the real submit path did not request the row lock (for_update=False)"
+   *** Quan trọng: bản T9 ĐẦU TIÊN vẫn PASS dù mutation — nó chỉ gọi lại helper. Đã viết lại để soi
+   đường production (spy + lock thật), rồi chạy lại mutation để chứng minh nó có răng. ***
+Sau khi khôi phục: P0 9/9, P1A 8/8, P1B 9/9, P1C 10/10 — tất cả ALL PASS.
+
+--------------------------------------------------------------------------------
+D. QUYẾT ĐỊNH ĐÃ CHỐT + SAI KHÁC CẦN USER XÁC NHẬN
+--------------------------------------------------------------------------------
+D1. `limit_by_score` base = TB `grand_total` các Sales Invoice đã submit (không tính return) —
+    user chọn 2026-09-16. Khách chưa có lịch sử ⇒ limit_by_score = 0.
+D2. Khách CHƯA có Credit Score ⇒ hạn mức 0 ⇒ CHẶN (user chọn "Chặn"). Message nêu rõ cần tạo hồ sơ.
+D3. ⚠️ Sai khác với prompt P1C: acceptance #1 của prompt ("3 draft SO 20tr → submit thứ 3 bị reject")
+    là hành vi TRƯỚC v2.2. `plan_final_v2.2_mustfix.md` MUST-3 (bản mới hơn, ghi MUST) đếm draft **ngay
+    lúc tạo**, nên draft thứ 3 bị chặn lúc tạo (đó chính là cách đóng bypass "10 đơn nháp"). Tôi làm
+    theo v2.2 và test CẢ HAI hành vi (T1: chặn lúc tạo; T2/T3: re-check lúc submit).
+D4. Số hạng term "SO submitted chưa xuất HĐ" đếm **toàn bộ grand_total** khi `per_billed < 100` ⇒ SO
+    xuất hoá đơn một phần bị đếm hai lần (an toàn: thừa hạn mức chứ không thiếu). Theo đúng spec.
+D5. Không thêm field schema nào ở P1C (Credit Score/Collateral/Feed Dealer Settings đã có đủ field từ
+    P0) ⇒ không cần migrate; chỉ cần clear-cache vì hooks.py đổi.
+D6. Repo `app_cam` **đã là git repo** (prompt ghi "chưa phải git repo" → không đúng nữa, không git init).
+
+--------------------------------------------------------------------------------
+E. CÒN LẠI / KHÔNG GIẤU
+--------------------------------------------------------------------------------
+E1. Commit P1C — chờ user duyệt (hạn mức tiền + luật phân quyền = vùng loại trừ an toàn).
+E2. Cancel một `Unreconcile Payment` không re-link gì trong v16 (DocType này không có on_cancel) ⇒ hook
+    cũng không tạo lại allocation; đã ghi ở design.md D16.
+E3. Score dùng "trả đúng hạn/trả trễ" theo trạng thái hiện tại (debt đã tất toán thì overdue_days=0) →
+    cần 1 field lưu chuỗi quá hạn dài nhất lúc tất toán; đã ghi D15, chưa làm (tránh sửa schema ở P1C).
+E4. P1B còn thiếu so với plan: phân bổ THỦ CÔNG (hiện chỉ FIFO), nhánh Journal Entry riêng cho nợ đầu kỳ.
+E5. Fixture P1A–P1C còn trên site (prefix P0/P1A/P1B/P1C-ACCEPT) — dọn bằng hàm cleanup() của mỗi bộ.
+E6. OpenCodeReview KHÔNG có trong phiên này ⇒ tự review diff (injection/null/quyền/tiền/pattern);
+    AgentMemory không truy cập được ⇒ bài học ghi vào LESSONS_LEARNED.md (#20–#23) + skill
+    `erpnext-v16-pitfalls` (1.7–1.9, 2.6, 6.1).
+
+--------------------------------------------------------------------------------
+F. ARTIFACTS ĐÃ CẬP NHẬT
+--------------------------------------------------------------------------------
+openspec: design.md (D15 credit gate + D16 unreconcile/row lock; Risks bổ sung 3 dòng),
+          specs/feed-dealer-data-model/spec.md (4 requirement mới + cập nhật hook surface),
+          tasks.md (mục 10.9–10.11 cập nhật + mục 11 P1C 11.1–11.9) — `openspec validate` → "is valid"
+docs:     working.md, checklist.md, next.md, features.md (mục 1c mới), LESSONS_LEARNED.md (#20–#23),
+          .agents/skills/erpnext-v16-pitfalls/SKILL.md (1.7–1.9, 2.6, 6.1 + description)
+================================================================================

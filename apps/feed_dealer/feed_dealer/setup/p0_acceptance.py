@@ -325,6 +325,8 @@ def check_hooks_registered():
 	expected = {
 		"Sales Invoice": ("on_submit", "before_cancel", "on_cancel"),
 		"Payment Entry": ("on_submit", "on_cancel"),
+		"Sales Order": ("validate", "before_submit"),
+		"Unreconcile Payment": ("on_submit",),
 		"Feed Batch": ("on_update",),
 	}
 	doc_events = frappe.get_hooks("doc_events") or {}

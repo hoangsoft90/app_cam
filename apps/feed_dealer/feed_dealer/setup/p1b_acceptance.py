@@ -18,6 +18,12 @@ Covers the prompt's P1B acceptance list, on real submitted documents:
                                   view can never exceed Payment Entry.paid_amount
   T7  refund does not allocate -> a `Pay` entry to a Customer (ERPNext allows it
                                   by API) leaves the debts alone
+  T8  Unreconcile Payment      -> ERPNext's own tool delinks the payment WITHOUT
+                                  cancelling it; our allocations are reversed and
+                                  the debt reopens (P1C hardening of a P1B gap)
+  T9  the FIFO read locks      -> proven from a second DB connection: while an
+                                  allocation holds the debt rows, another
+                                  session's FOR UPDATE on them times out
 
 `run()` and `debug()` both clear their own fixtures first, so every assertion is
 absolute instead of relative to whatever a previous run left behind. Fixtures
@@ -32,8 +38,8 @@ import frappe
 from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 from frappe.utils import flt, nowdate
 
-from feed_dealer.events.payment_entry import _recalculate, on_submit
-from feed_dealer.setup.p1a_acceptance import _debts, _invoice
+from feed_dealer.events.payment_entry import _open_debts, _recalculate, on_submit
+from feed_dealer.setup.p1a_acceptance import _company, _debts, _invoice
 
 PREFIX = "P1B-ACCEPT"
 
@@ -383,6 +389,153 @@ def check_no_double_allocation():
 	return f"{pe.name} re-fired -> still {len(after)} allocation, allocated {allocated:,.0f} <= paid 1,000,000 ({result})"
 
 
+def check_unreconcile_payment_reverses_allocations():
+	"""T8: ERPNext's Unreconcile Payment must reopen the debt it had settled.
+
+	`Unreconcile Payment` does not cancel the Payment Entry (verified in the
+	installed source), so P1B's `on_cancel` never fires in that flow. Without
+	feed_dealer.events.unreconcile_payment the debt would keep saying "Đã trả"
+	while AR considers the invoice outstanding again.
+	"""
+	inv, batch, debt_name = _batched_invoice("T8", qty=10, rate=100_000)
+	pe = _payment(inv.name, 1_000_000)
+	if _debt(debt_name).status != "Đã trả":
+		raise AssertionError("fixture broken: the payment did not settle the debt")
+
+	unreconcile = frappe.get_doc(
+		{
+			"doctype": "Unreconcile Payment",
+			"company": _company(),
+			"voucher_type": "Payment Entry",
+			"voucher_no": pe.name,
+		}
+	)
+	unreconcile.add_references()  # ERPNext's own helper fills `allocations`
+	if not unreconcile.allocations:
+		raise AssertionError("fixture broken: ERPNext found nothing to unreconcile")
+	unreconcile.insert(ignore_permissions=True)
+	unreconcile.submit()
+	frappe.db.commit()
+
+	allocs = _allocations(pe.name)
+	if any(row.docstatus != 2 for row in allocs):
+		raise AssertionError(f"our allocations must be cancelled: {allocs}")
+	debt = _debt(debt_name)
+	if flt(debt.paid_amount) != 0 or flt(debt.outstanding_amount) != 1_000_000:
+		raise AssertionError(f"the debt must be open again: {debt}")
+	if debt.status != "Chưa trả":
+		raise AssertionError(f"status should be back to 'Chưa trả', got {debt.status!r}")
+	if _batch_total(batch) != 1_000_000:
+		raise AssertionError(f"batch total should be restored, got {_batch_total(batch):,.0f}")
+	if frappe.db.get_value("Payment Entry", pe.name, "docstatus") != 1:
+		raise AssertionError("Unreconcile Payment must NOT have cancelled the payment entry")
+	return (
+		f"{unreconcile.name}: {pe.name} delinked from {inv.name} -> {debt_name} back to 1,000,000 "
+		f"('Chưa trả'), payment still submitted"
+	)
+
+
+def check_allocation_locks_debt_rows():
+	"""T9: the FIFO read locks the debt rows it is about to allocate against.
+
+	Two payments submitted at the same moment would otherwise both read the same
+	`outstanding_amount` and hand the same money out twice.
+
+	Two proofs, because either alone can pass for the wrong reason (a mutation run
+	showed that a test which only calls `_open_debts(for_update=True)` itself stays
+	green even when the real submit path stops asking for the lock):
+
+	1. the PRODUCTION path asks for it - a spy on `_open_debts` watches a real
+	   Payment Entry submit;
+	2. the lock is real - with it held here, a second DB connection's
+	   `SELECT ... FOR UPDATE` on the same rows fails after one second (the timeout
+	   is set per session, so the check stays fast).
+	"""
+	from feed_dealer.events import payment_entry as payment_entry_module
+
+	customer = _customer("T9")
+	inv, _batch, _debt = _batched_invoice("T9", qty=10, rate=100_000, customer_tag="T9")
+
+	seen = {}
+	original = payment_entry_module._open_debts
+
+	def spy(customer, for_update=False):
+		seen["for_update"] = for_update
+		return original(customer, for_update=for_update)
+
+	payment_entry_module._open_debts = spy
+	try:
+		_payment(inv.name, 1_000_000)
+	finally:
+		payment_entry_module._open_debts = original
+	if not seen.get("for_update"):
+		raise AssertionError(
+			f"the real submit path did not request the row lock (for_update={seen.get('for_update')!r})"
+		)
+
+	# A second, still-open debt of the same customer to hold the lock on.
+	_fresh_inv, _fresh_batch, debt_name = _batched_invoice(
+		"T9b", qty=10, rate=100_000, customer_tag="T9"
+	)
+	conn = _second_connection()
+	if conn is None:
+		raise AssertionError("could not open a second DB connection, lock unproven")
+	blocked, error = False, ""
+	try:
+		cur = conn.cursor()
+		cur.execute("SET SESSION innodb_lock_wait_timeout=1")
+		locked = _open_debts(customer, for_update=True)
+		if not locked:
+			raise AssertionError("fixture broken: no open debt to lock")
+		try:
+			cur.execute(
+				"SELECT name FROM `tabBatch Debt` WHERE customer=%s AND docstatus=1 "
+				"AND outstanding_amount>0 FOR UPDATE",
+				(customer,),
+			)
+		except Exception as exc:  # noqa: BLE001 - the timeout IS the evidence
+			blocked, error = True, str(exc)[:90]
+	finally:
+		try:
+			conn.rollback()
+			conn.close()
+		finally:
+			frappe.db.commit()  # release the lock for the rest of the suite
+	if not blocked:
+		raise AssertionError(
+			f"the second session locked the rows too - the FIFO read is NOT locking. "
+			f"Held rows: {[row['name'] for row in locked]}"
+		)
+	return (
+		f"on_submit asked for the lock (for_update={seen['for_update']}); {debt_name} then locked by "
+		f"_open_debts(for_update=True) and a second session's FOR UPDATE failed: {error}"
+	)
+
+
+def _second_connection():
+	"""A raw DB connection to the same site DB, to observe row locks from outside."""
+	try:
+		import pymysql
+	except ImportError:  # pragma: no cover - frappe ships pymysql for MariaDB
+		print("[feed_dealer] pymysql is not importable")
+		return None
+	conf = frappe.conf
+	params = {
+		"host": conf.get("db_host") or "127.0.0.1",
+		"port": int(conf.get("db_port") or 3306),
+		"user": conf.get("db_user") or conf.get("root_login") or "root",
+		"password": conf.get("db_password") or conf.get("root_password") or "",
+		"database": conf.db_name,
+		"connect_timeout": 5,
+	}
+	try:
+		return pymysql.connect(**params)
+	except Exception as exc:  # noqa: BLE001
+		print(f"[feed_dealer] second connection failed: {type(exc).__name__}: {exc}")
+		print(f"[feed_dealer] conf keys available: db_host/db_port/db_name/db_user? {sorted(k for k in frappe.conf if k.startswith('db') or k.startswith('root'))}")
+		return None
+
+
 CHECKS = (
 	("T1  partial payment", check_partial_payment),
 	("T2  full payment", check_full_payment),
@@ -391,6 +544,8 @@ CHECKS = (
 	("T5  overdue + fee from Settings", check_overdue_and_fee_from_settings),
 	("T6  no double allocation", check_no_double_allocation),
 	("T7  refund does not allocate", check_refund_does_not_allocate),
+	("T8  unreconcile reverses", check_unreconcile_payment_reverses_allocations),
+	("T9  FIFO read locks rows", check_allocation_locks_debt_rows),
 )
 
 
@@ -443,6 +598,23 @@ def cleanup():
 	"""
 	removed = []
 	customers = _customers()
+	# Unreconcile Payment (T8) references the payment; drop it before the payment.
+	for row in frappe.get_all(
+		"Unreconcile Payment",
+		filters={"voucher_no": ["in", frappe.get_all(
+			"Payment Entry", filters={"party": ["in", customers or [""]]}, pluck="name"
+		) or [""]]},
+		fields=["name", "docstatus"],
+	):
+		try:
+			doc = frappe.get_doc("Unreconcile Payment", row.name)
+			if doc.docstatus == 1:
+				doc.cancel()
+			frappe.delete_doc("Unreconcile Payment", row.name, force=True, ignore_permissions=True)
+			removed.append(f"Unreconcile Payment {row.name}")
+		except Exception as exc:  # noqa: BLE001
+			removed.append(f"Unreconcile Payment {row.name} FAILED: {exc}")
+
 	for row in frappe.get_all(
 		"Payment Entry", filters={"party": ["in", customers]}, fields=["name", "docstatus"]
 	):

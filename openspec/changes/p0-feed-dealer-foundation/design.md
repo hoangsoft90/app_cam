@@ -145,6 +145,69 @@ The formula still lives in exactly one place — the controller — so the write
 - ERPNext's *Unreconcile Payment* tool de-reconciles an invoice by posting a new Journal Entry while the Payment Entry stays submitted; nothing fires in this module, so the allocations would keep claiming the debt is paid. Reversing it belongs with the P1C payment-ledger work.
 - Two Payment Entries submitted **concurrently** for the same customer both read the same debt outage and can each allocate up to it, over-crediting the debt. The plan's FIFO pseudocode has the same shape and a real fix needs row locking (`select … for update`) plus a concurrency test; recorded here rather than silently accepted.
 
+### D15 — The credit gate is one shared function, and a customer without a Credit Score is blocked
+
+`feed_dealer.credit_limit.validate_credit_limit()` implements `plan_final_v2.2_mustfix.md`
+MUST-3 verbatim:
+
+```
+committed = SUM(Batch Debt.outstanding_amount)   docstatus=1, status != "Đã trả"
+          + SUM(Sales Order.grand_total)         docstatus=1, not Completed/Stopped, per_billed < 100
+          + SUM(Sales Order.grand_total)         docstatus=0            [drafts]
+reject when order_value > approved_limit - committed
+```
+
+Decisions taken here (each was a real fork, recorded instead of guessed):
+
+- **MUST-3 supersedes the P1C prompt's acceptance example.** The prompt asks for "3 draft SO of
+  20 million against a 50 million limit → the third submit is refused", which is the *pre*-v2.2
+  behaviour: with drafts counted at save time the third draft is refused when it is CREATED
+  (v2.2's whole point — without it, N drafts each pass and the customer ends up N times over the
+  limit). Both behaviours are now covered by tests: T1 (the third draft is refused) and T2/T3
+  (the submit-time re-check still refuses an order whose committed total grew after creation).
+- **Drafts are not counted at submit** (`check_draft=False`, `for_submit=True`): the order being
+  submitted is about to become a submitted order, so counting it as a draft as well would block
+  a customer at exactly their limit.
+- **A customer with no `Credit Score` document has a limit of 0 and is blocked.** The alternative
+  (fail open) makes the gate bypassable by simply not creating the document. The thrown message
+  says which document to create, and the manager override is the sanctioned path.
+- **`limit_by_score` = the tier percentage × the customer's average submitted invoice total.** The
+  plan calls this "avg batch value" but never defines it; the user chose invoice-history on
+  2026-09-16. A customer with no history therefore has a calculated limit of 0 — the honest answer
+  for an unknown customer, and the reason the override exists (T6/T8).
+- **The submitted-order term counts the order's full `grand_total` while `per_billed < 100`,** so a
+  partially invoiced order is counted twice (here and through the Batch Debt its invoice created).
+  The spec prescribes it and the direction is safe: it over-reserves, never under-reserves.
+- **The whitelisted API is permission-checked.** `get_credit_position` / `check_order_credit` are
+  `@frappe.whitelist()`, i.e. open to any logged-in user; the first version returned any
+  customer's limit to anybody (caught in self-review), and now checks read access to that
+  customer's `Credit Score` and fails closed (T10).
+- **Known weakness, not papered over:** `Batch Debt` zeroes `overdue_days` when a debt is settled
+  (the P1B contract), so the score's "on-time / late" counters see the customer's live standing
+  rather than their whole history. Persisting the worst overdue streak at settle time is the fix
+  and needs a field, so it is deferred here rather than approximated silently.
+
+### D16 — Closing the two P1B gaps: unreconcile and concurrent allocation
+
+- **Unreconcile.** ERPNext v16's `Unreconcile Payment` does not cancel the Payment Entry; its
+  `on_submit` calls `unlink_ref_doc_from_payment_entries()` (delinks the payment from the invoice,
+  marks Payment Ledger Entries delinked) and `update_voucher_outstanding()`. Nothing fires on our
+  `Payment Entry` hooks, so the allocation layer would keep claiming the debt was paid while AR
+  says the invoice is open again. `feed_dealer.events.unreconcile_payment.on_submit` now cancels
+  the allocations whose Batch Debt belongs to an invoice in the unreconcile's `allocations` list
+  and recomputes those debts — the same end state a Payment Entry cancel produces (T8). Left
+  genuinely unhandled: *cancelling* an `Unreconcile Payment` re-links nothing in v16 (the DocType
+  has no `on_cancel`), so this hook does not re-create allocations either; re-reconciling in AR
+  must be followed by running the allocation again.
+- **Concurrency.** `_open_debts(..., for_update=True)` locks the debt rows the FIFO allocation is
+  about to consume. Without it two payments submitted at the same moment both read the same
+  `outstanding_amount` and can hand the same money out twice; a locking read sees the latest
+  committed row, so the second caller waits and then finds the debt settled. Row order is fixed
+  (`due_date asc, creation asc`) so two allocations cannot deadlock. Proven from a second DB
+  connection (its `FOR UPDATE` must time out) *and* by a spy that watches a real submit request
+  the lock (T9) — the first version of that test only called the helper itself and stayed green
+  even with the lock switched off, which the mutation run caught.
+
 ## Risks / Trade-offs
 
 - [Deploying to a live site that other people and apps are using] → Every master step is create-if-absent and name-resolved; nothing is renamed, re-parented or deleted; the only writes are new DocTypes, new roles/masters and acceptance fixtures named `P0-ACCEPT…`, which `cleanup()` removes.
@@ -154,7 +217,10 @@ The formula still lives in exactly one place — the controller — so the write
 - [Target is v16 while the plan was written for v15] → The four v16 differences found so far (UOM conversion model, aggregate field syntax, submitted-doc deletion, hook value shape) are each recorded with the failing message that revealed them, so the next version bump has a checklist to re-verify rather than a surprise.
 - [`bench new-app` scaffolds a module folder nested as `feed_dealer/feed_dealer/feed_dealer/`] → Keep the generated layout (fighting it breaks Frappe's module-path conventions) and record the path in the README so reviewers do not mistake it for a mistake.
 - [The generator owns the two non-trivial controllers] → Documented in the generator and README; the acceptance suite fails loudly if a controller is regenerated into a state that breaks behaviour. P1A's `on_submit` fix had already been lost once this way, so the P1A/P1B work was applied to the generator first and `--check` is run before every push.
-- [Concurrent/first-reconciled payments can over-credit a batch debt] → Documented in D14 as an open gap with the concrete failure mode; the fix (row locking) is a P1C decision, not a silent omission.
+- [Concurrent payments can over-credit a batch debt, and ERPNext's Unreconcile Payment bypasses our reversal] → Both were P1B's open gaps; D16 records the fixes (row lock on the debt rows, plus a hook on `Unreconcile Payment`) and the acceptance that proves each one. The remaining half — cancelling an Unreconcile Payment re-links nothing in v16 — is stated there rather than hidden.
+- [The credit limit counts a partially invoiced order twice] → Prescribed by v2.2 MUST-3 and deliberately kept: over-reserving is the safe direction for a hard limit. If it starts blocking real orders in the field, the fix is to subtract the billed part (`per_billed`) and re-test T2/T3.
+- [The credit score's on-time/late counters only see live debts] → Documented in D15 with the reason (settled debts zero `overdue_days`) and the fix (persist the worst overdue streak at settle time). The score, tier and limits stay deterministic in the meantime.
+- [A customer with no Credit Score cannot buy on credit at all] → Accepted deliberately (D15): the gate fails closed, the message names the missing document, and a manager override is the sanctioned path. If the rollout needs a softer start, the switch belongs in `Feed Dealer Settings`, not in a silent default.
 
 ## Migration Plan
 

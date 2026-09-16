@@ -29,6 +29,22 @@ Nguồn tổng hợp: `.plan/plan_final*.md` + v2.1/v2.2/v2.3 patches, OpenSpec 
 | Chống trùng | hook chạy lại không cấp phát lần 2; tổng cấp phát ≤ `paid_amount` | P1B T6 |
 | Lãi chậm trả | đọc `Feed Dealer Settings.late_payment_interest_rate` (fallback 0.00022), tính trên outstanding còn lại | P1B T5 |
 
+### 1c. P1C — hạn mức tín dụng + đóng 2 lỗ hổng P1B (2026-09-16)
+- **Gate hạn mức dùng chung** `feed_dealer/credit_limit.py`: công thức v2.2 MUST-3 (nợ đã xuất HĐ +
+  đơn đã submit chưa xuất HĐ + đơn nháp); **một hàm** cho cả hook Desk lẫn API
+- **Sales Order**: `validate` (đếm cả draft — chặn bypass nhiều đơn nháp) + `before_submit`
+  (row lock `Credit Score` + re-check); từ chối thì đơn **vẫn là draft** (không ghi rồi mới báo lỗi)
+- **Credit Score**: score/tier/`limit_by_score`/`limit_by_collateral`/`credit_limit` tính
+  deterministic (không AI); **override chỉ Manager**, bắt buộc lý do, tự stamp `override_by/date`
+- **Khách chưa có Credit Score = chặn** (hạn mức 0) — quyết định 2026-09-16, message chỉ rõ cần tạo gì
+- **API** `get_credit_position` / `check_order_credit` (`@frappe.whitelist`) — có kiểm tra quyền đọc
+  Credit Score của đúng khách đó (fail closed)
+- **Đóng lỗ hổng P1B**: hook `Unreconcile Payment` đảo allocation khi ERPNext delink payment; FIFO
+  lock row `Batch Debt` (`select … for update`) chống cấp phát trùng khi thanh toán đồng thời
+- **Còn lại** (không giấu): phân bổ **thủ công** (hiện chỉ FIFO); nhánh Journal Entry riêng cho nợ đầu
+  kỳ; `seasonal_limit_cap` là input tay; "trả đúng hạn/trả trễ" chỉ thấy nợ đang sống (settled debt
+  bị reset `overdue_days`) → cần field lưu chuỗi quá hạn, để sau
+
 ### Công cụ triển khai (ngoài app, trong `.agent/`, không commit)
 `gen_feed_dealer.py` (generator DocType), `push_to_mac.py` (sync app), `bench.py`/`mac.py`/`mcp_client.py` (cầu MCP sang Mac), `push_file.py`.
 
@@ -43,15 +59,7 @@ Nguồn tổng hợp: `.plan/plan_final*.md` + v2.1/v2.2/v2.3 patches, OpenSpec 
 
 ### P1B — Thanh toán (✅ đã xong, xem mục 1b)
 - Chưa làm: phân bổ **thủ công** (hiện chỉ FIFO), đối ứng JE riêng cho nợ đầu kỳ (FIFO đã phủ, chưa tách nhánh JE)
-- **Lỗ hổng đã ghi rõ (design.md D14)**: ERPNext *Unreconcile Payment* không được đảo ngược bởi lớp này; thanh toán đồng thời cùng khách có thể cấp phát vượt (cần row lock)
-
 ### P1D — Trả hàng (kế tiếp)
-- `returned_amount` / credit note → giảm outstanding
-
-### P1C — Hạn mức tín dụng
-- Tính `Credit Score` (4 chiều), `credit_limit` theo tier; chặn đơn vượt hạn mức
-
-### P1D — Trả hàng
 - `Sales Return Request` duyệt → credit note → chỉnh `batch_debt_adjusted`
 
 ### P1E–G — Tách/gộp lứa, xác nhận nợ, cảnh báo dịch bệnh

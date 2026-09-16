@@ -4,30 +4,34 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Đang làm
 
-- [2026-09-16] Change `p0-feed-dealer-foundation` — **32/36 task xong** (còn 5.17, 8.5, 10.10,
-  10.11 — tất cả đều chờ quyết định/duyệt của user), `openspec validate` → "is valid". App
-  `feed_dealer` đã install trên site ERPNext **v16** của user (Mac, `frappe_docker`, site
-  `frontend`), 19 DocType module `Feed Dealer` (0 custom).
-  Bằng chứng mới nhất (sau khi vá P1A + làm P1B): P1B `TOTAL: 6 PASS: 6 FAIL: 0` (`P1B ACCEPTANCE:
-  ALL PASS`), P1A `6 PASS: 6 FAIL: 0` (thêm T6 mới), P0 `9 PASS: 9 FAIL: 0` — chạy trên site thật
-  sau `migrate` (`/tmp/mig_p1b.log`, `=== EXIT 0 ===`).
-  Chưa commit — repo chưa có commit nào, đợi user duyệt (task 8.5 + 10.11).
+- [2026-09-16] Change `p0-feed-dealer-foundation` — **P1C xong, chỉ còn chờ duyệt commit** (task
+  11.9), `openspec validate` → "is valid". App `feed_dealer` trên site ERPNext **v16** của user
+  (Mac, `frappe_docker`, site `frontend`), 19 DocType module `Feed Dealer` (0 custom).
+  Đã commit: `eb75222` (P0+P1A+P1B), `0355d6b` (vá refund/NULL), `0e89ce7` (bỏ track `__pycache__`).
+  Bằng chứng mới nhất (site thật, sau `clear-cache`): **P0 `9/9`, P1A `8/8`, P1B `9/9`, P1C `10/10`
+  — tất cả `ALL PASS`**. P1C gồm: gate hạn mức dùng chung (`credit_limit.py`, công thức v2.2
+  MUST-3) + hook Sales Order (`validate` đếm cả draft, `before_submit` row lock + re-check),
+  Credit Score controller (score/tier/limit deterministic, override chỉ Manager có audit), và
+  đóng **cả 2 lỗ hổng P1B** (hook `Unreconcile Payment`, row lock khi FIFO). Chi tiết + mọi quyết
+  định: `design.md` D15/D16, `tasks.md` mục 11, `result_2026-09-16_1423.txt`.
 
 ## Chờ user quyết
 
-- [2026-09-16] **2 lỗ hổng P1B đã ghi rõ trong `design.md` D14** (không giấu): (1) ERPNext
-  *Unreconcile Payment* tạo JE mới và **không** cancel Payment Entry → lớp allocation sẽ vẫn coi
-  khoản nợ là đã trả; (2) 2 Payment Entry submit **đồng thời** cho cùng khách có thể cùng đọc
-  outstanding cũ và cấp phát vượt (cần row lock `select … for update` + test concurrency). Cả hai
-  đều để P1C quyết.
+- [2026-09-16] **Commit P1C** (task 11.9). P1C là hạn mức tiền + luật phân quyền (vùng loại trừ
+  an toàn) nên tôi dừng chờ xác nhận, dù prompt P1C có ghi "mỗi sub-phase PASS → commit".
+- [2026-09-16] ~~2 lỗ hỏng P1B~~ **đã đóng ở P1C** (`design.md` D16): (1) *Unreconcile Payment*
+  giờ có hook `feed_dealer.events.unreconcile_payment.on_submit` đảo allocation (P1B T8); (2) FIFO
+  đã lock row `Batch Debt` bằng `get_values(..., for_update=True)` (P1B T9, chứng minh bằng
+  connection thứ hai + spy trên đường submit thật). Còn lại (v16 không re-link khi cancel
+  Unreconcile Payment) đã ghi rõ trong D16, không giấu.
 
 - [2026-09-16] **Cột rác trên `tabBatch` của ERPNext.** Sự cố trùng tên DocType `Batch` (đã sửa bằng
   cách đổi app sang `Feed Batch`) để lại 12 cột không dùng trên bảng `tabBatch`:
   `customer, animal_type, start_date, expected_end_date, quantity, start_weight, current_weight,
   status, split_operation, has_been_split, total_debt, notes`. Frappe khôi phục metadata của ERPNext
   nhưng không xoá cột. Xoá cột là DDL không hoàn tác trên site thật → chờ user xác nhận.
-- [2026-09-16] Có commit `apps/feed_dealer` + artifacts vào git không? Repo hiện chưa có commit nào
-  (mọi file còn untracked).
+- [2026-09-16] Có commit `apps/feed_dealer` + artifacts vào git không? **Đã commit 3 lần**
+  (`eb75222`, `0355d6b`, `0e89ce7`); phần P1C còn chờ duyệt (xem mục trên).
 
 ## Vướng mắc môi trường
 
@@ -37,6 +41,14 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Đã xong (task lớn, gần nhất)
 
+- [2026-09-16] **P1C Credit Limit + hardening P1B: xong, verify bằng test thật + mutation check.**
+  `credit_limit.validate_credit_limit()` là **một hàm dùng chung** cho hook Sales Order và API
+  (`check_order_credit`/`get_credit_position`); công thức đúng `plan_final_v2.2_mustfix.md` MUST-3
+  (nợ + đơn đã submit chưa xuất HĐ + đơn nháp). Khách **chưa có Credit Score = chặn** (quyết định
+  của user), `limit_by_score` = %hạng × TB hoá đơn đã submit (user chọn). Vá thêm 1 lỗ hỏng do
+  self-review: API whitelisted trả hạn mức của **mọi** khách cho bất kỳ user đăng nhập → thêm
+  `_require_credit_read` (P1C T10). Mutation check: tắt re-check submit → T2/T3 đỏ; tắt hook
+  unreconcile → T8 đỏ; tắt lock → T9 đỏ (và T9 bản đầu vẫn xanh ⇒ đã viết lại cho có răng).
 - [2026-09-16] Xoá cài đặt Docker ERPNext khỏi **máy này** theo yêu cầu user: 0 container, 0 volume,
   0 build cache, xoá image `frappe/erpnext:v15.121.2` + `postgres:15` + `redis:7-alpine` và network
   `app-cam_default` (còn `alpine:3.19` 11.6MB — có trước, không phải của stack này, chưa xoá).

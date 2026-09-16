@@ -153,8 +153,15 @@ after_migrate = "feed_dealer.setup.custom_fields.sync"
 # on before_cancel because frappe writes docstatus=2 BEFORE on_cancel fires).
 # P1B implements the Payment Entry bodies (on_submit slices the received amount
 # FIFO across the customer's open debts as submitted Payment Allocations;
-# on_cancel cancels those allocations and reopens the debts). Feed Batch
-# on_update remains a stub.
+# on_cancel cancels those allocations and reopens the debts).
+# P1C implements the Sales Order credit gate: `validate` counts the other open
+# drafts as committed credit (closes the "N draft orders" bypass) and
+# `before_submit` re-checks atomically with a row lock on the Credit Score
+# document. Both go through one shared function (feed_dealer.credit_limit) so a
+# Farmer/API caller cannot get a weaker rule.
+# `Unreconcile Payment` is ERPNext's own DocType: it de-reconciles an invoice
+# while the Payment Entry stays submitted, so P1B's reversal never fires - the
+# hook below reverses our allocations for it. Feed Batch on_update stays a stub.
 #
 # `Feed Batch` (ours), NOT `Batch` (ERPNext's stock batch): hooking `Batch`
 # would run our debt refresh on stock batches too.
@@ -168,6 +175,13 @@ doc_events = {
 	"Payment Entry": {
 		"on_submit": "feed_dealer.events.payment_entry.on_submit",
 		"on_cancel": "feed_dealer.events.payment_entry.on_cancel",
+	},
+	"Sales Order": {
+		"validate": "feed_dealer.events.sales_order.validate",
+		"before_submit": "feed_dealer.events.sales_order.before_submit",
+	},
+	"Unreconcile Payment": {
+		"on_submit": "feed_dealer.events.unreconcile_payment.on_submit",
 	},
 	"Feed Batch": {
 		"on_update": "feed_dealer.events.batch.on_update",

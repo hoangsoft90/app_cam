@@ -165,10 +165,54 @@ keeps describing what actually shipped.
   *Evidence:* P1B T6 — re-running `on_submit` returns `already allocated 1,000,000 of 1,000,000`,
   allocation count unchanged, `allocated <= paid_amount`.
 - [x] 10.9 Re-run P0 and P1A after P1B to prove no regression.
-  *Evidence:* `P0 ACCEPTANCE: ALL PASS` (`TOTAL: 9  PASS: 9  FAIL: 0`, A7 now lists 6 handlers) and
-  `P1A ACCEPTANCE: ALL PASS` (`TOTAL: 6  PASS: 6  FAIL: 0`).
-- [ ] 10.10 Two open gaps recorded in `design.md` D14 need a decision: ERPNext's *Unreconcile
-  Payment* path is not reversed by this layer, and concurrent payments for one customer can
-  over-credit a debt (needs row locking). Neither is silently accepted; both are P1C decisions.
-- [ ] 10.11 Commit the P1A fix + P1B work. **Pending user approval** — same safety-exclusion
-  reasoning as 8.5 (financial allocation logic).
+  *Evidence:* `P0 ACCEPTANCE: ALL PASS` (`TOTAL: 9  PASS: 9  FAIL: 0`) and
+  `P1A ACCEPTANCE: ALL PASS` (`TOTAL: 8  PASS: 8  FAIL: 0`, re-run after the P1C head).
+- [x] 10.10 Two gaps recorded in `design.md` D14 are closed in P1C (see 11.5, 11.6): ERPNext's
+  *Unreconcile Payment* now has a hook, and the FIFO read takes a row lock.
+  *Evidence:* `design.md` D16; `P1B T8` and `P1B T9` below.
+- [x] 10.11 Commit the P1A fix + P1B work.
+  *Evidence:* `0355d6b` (refund gate + NULL-safe idempotency key) and `0e89ce7` (stop tracking
+  `__pycache__`), on top of `eb75222` (P0 + P1A + P1B).
+
+## 11. Phase 1 — P1C (credit limit) and the P1B hardening
+
+- [x] 11.1 One shared gate `feed_dealer.credit_limit.validate_credit_limit()` implementing
+  `plan_final_v2.2_mustfix.md` MUST-3 (outstanding debt + submitted-uninvoiced orders + drafts).
+  *Evidence:* `feed_dealer/credit_limit.py`; every check in `p1c_acceptance` exercises it through a
+  real Sales Order, and T9 proves the hook and the whitelisted API call the same function object.
+- [x] 11.2 Sales Order `validate` (draft + update, drafts counted) and `before_submit` (row lock on
+  the Credit Score document + atomic re-read).
+  *Evidence:* `P1C T1` — two 20,000,000 drafts hold credit and the third is refused
+  ("Còn khả dụng: 10,000,000đ"); `P1C T2` — a 30,000,000 invoice arriving after the draft was
+  created refuses its submit; `P1C T3` — limit lowered to 30,000,000 after two drafts, first order
+  submits, second refused and stays `docstatus=0` (the write is blocked, not undone).
+- [x] 11.3 A customer with no `Credit Score` document is blocked (limit 0) with a message naming
+  the missing document; paying a debt frees the credit again.
+  *Evidence:* `P1C T4` (blocked → accepted after the limit was granted) and `P1C T5` (40,000,000
+  debt blocks a 30,000,000 draft; after the payment the same order submits).
+- [x] 11.4 `Credit Score` controller: deterministic score/tier, calculated vs approved limit,
+  manager-only override with reason and audit stamp.
+  *Evidence:* `P1C T7` (`0→Đồng 39→Đồng 40→Bạc 59→Bạc 60→Vàng 79→Vàng 80→Kim Cương 100→Kim Cương`),
+  `P1C T8` (score 60 / Vàng → `limit_by_score` 8,000,000 = avg 10,000,000 × 80%; 7,000,000 accepted,
+  9,000,000 refused) and `P1C T6` (calculated 0 refused; staff attempt refused at the gate and not
+  persisted; manager missing-reason and missing-limit refused; override 5,000,000 stamped with the
+  manager and a timestamp; 4,000,000 accepted, 6,000,000 refused).
+- [x] 11.5 Reverse the allocation layer when ERPNext unreconciles a payment.
+  *Evidence:* `P1B T8` — `Unreconcile Payment` delinks `ACC-PAY-2026-00150` from the invoice while
+  the payment stays submitted; the debt returns to 1,000,000 / "Chưa trả" and the batch total is
+  restored.
+- [x] 11.6 Lock the debt rows during FIFO allocation.
+  *Evidence:* `P1B T9` — a spy on `_open_debts` sees `for_update=True` during a real Payment Entry
+  submit, and a second DB connection's `SELECT … FOR UPDATE` on the same rows fails with
+  `(1205, 'Lock wait timeout exceeded')`.
+- [x] 11.7 Mutation-check every new guard (break it, watch the test go red, restore).
+  *Evidence:* with the submit re-check disabled `P1C T2`/`T3` failed; with the unreconcile hook
+  disabled `P1B T8` failed; with the lock disabled `P1B T9` failed (and the first version of T9
+  stayed green — it was rewritten to watch the production path, then re-checked).
+- [x] 11.8 Self-review the new code for the money/permission surface.
+  *Evidence:* the whitelisted credit APIs returned any customer's position to any logged-in user
+  (now `_require_credit_read`, covered by `P1C T10`); the full suites re-run green:
+  `P0 9/9`, `P1A 8/8`, `P1B 9/9`, `P1C 10/10`. OpenCodeReview is not installed in this session, so
+  the diff was reviewed by hand against injection/null/permission/money patterns.
+- [ ] 11.9 Commit P1C. **Pending user approval** — the credit limit is a hard business limit plus an
+  authorisation rule, i.e. the same safety exclusion as 8.5/10.11.

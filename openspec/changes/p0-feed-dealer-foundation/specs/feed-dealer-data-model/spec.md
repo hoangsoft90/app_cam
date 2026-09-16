@@ -136,7 +136,7 @@ The lứa nuôi DocType SHALL be named `Feed Batch` (never `Batch`, which belong
 #### Scenario: Doc events are registered
 
 - **WHEN** `hooks.py` is inspected
-- **THEN** `doc_events` contains entries for `Sales Invoice` (`on_submit`, `on_cancel`), `Payment Entry` (`on_submit`, `on_cancel`) and `Feed Batch` (`on_update`), each pointing at an importable function belonging to this app
+- **THEN** `doc_events` contains entries for `Sales Invoice` (`on_submit`, `before_cancel`, `on_cancel`), `Payment Entry` (`on_submit`, `on_cancel`), `Sales Order` (`validate`, `before_submit`), `Unreconcile Payment` (`on_submit`) and `Feed Batch` (`on_update`), each pointing at an importable function belonging to this app
 
 #### Scenario: Registered handlers are importable stubs
 
@@ -151,3 +151,66 @@ The system SHALL provide an `AI Workflow Config` DocType whose records expose `w
 
 - **WHEN** an `AI Workflow Config` record is created with `enabled = 0`, a reason and a disabling user
 - **THEN** the record saves and reports `enabled` as false on re-read
+
+### Requirement: Credit limit is enforced on Sales Order (draft and submit)
+
+The system SHALL refuse a Sales Order whose value would push the customer past their approved credit limit, where the committed amount is the sum of non-settled submitted `Batch Debt` outstanding, submitted orders that are not yet fully billed, and draft orders. The check SHALL run through one shared function for every caller (Desk hook, whitelisted API, mobile clients), SHALL count open drafts so a customer cannot bypass the limit by creating many drafts, and SHALL re-check atomically at submit with a row lock on the customer's `Credit Score` document. The approved limit is `Credit Score.credit_limit`, and a customer with no `Credit Score` document has a limit of zero.
+
+#### Scenario: A draft order beyond the approved limit is refused
+
+- **WHEN** a customer with a 50,000,000 limit already holds 40,000,000 in draft orders and a 20,000,000 draft is created
+- **THEN** the creation is rejected with the limit, the committed amount and the available amount, and the draft is not stored
+
+#### Scenario: The submit is re-checked, and a refused submit does not write
+
+- **WHEN** the committed total grows after a draft was created (a direct invoice appears, or the limit is lowered) and the draft is then submitted
+- **THEN** the submit is rejected and the order keeps `docstatus = 0`
+
+#### Scenario: Settling debt frees credit again
+
+- **WHEN** the customer's outstanding debt is paid off
+- **THEN** the available credit increases by the settled amount and an order that was refused before is accepted
+
+#### Scenario: A customer without a Credit Score cannot buy on credit
+
+- **WHEN** a Sales Order is created for a customer with no `Credit Score` document
+- **THEN** it is rejected and the message names the missing document (the gate fails closed)
+
+#### Scenario: The credit position API is permission-checked
+
+- **WHEN** a user without read access to a customer's `Credit Score` calls the credit-position API
+- **THEN** the call is rejected with a permission error instead of returning that customer's limit
+
+### Requirement: Credit Score derives tier, limits and overrides deterministically
+
+The `Credit Score` controller SHALL recompute, without any AI/LLM step, the score (`50 + 5 × on-time − 10 × late + 2 × completed batches`, clamped to 0–100), the tier, `limit_by_score` (tier percentage from `Feed Dealer Settings` × the customer's average submitted invoice total), `limit_by_collateral` (collateral at effective value), `limit_by_guarantee` and the final `credit_limit` (the minimum of the dimensions above zero, or `manual_limit` when overridden).
+
+#### Scenario: Tier follows the frozen score table
+
+- **WHEN** the score is 39, 40, 59, 60, 79, 80 or 100
+- **THEN** the tier is Đồng, Bạc, Bạc, Vàng, Vàng, Kim Cương and Kim Cương respectively
+
+#### Scenario: Only a manager may override, with a reason, and the override is stamped
+
+- **WHEN** a user without a manager role sets `manual_override`, or a manager sets it without a reason or without a limit
+- **THEN** the save is rejected
+- **AND WHEN** a manager saves the override with a reason and a limit
+- **THEN** `credit_limit` becomes the manual limit and `override_by` / `override_date` carry the manager and the timestamp
+
+### Requirement: Unreconciling a payment reverses its allocation
+
+When ERPNext's `Unreconcile Payment` delinks a submitted Payment Entry from an invoice, the system SHALL cancel the `Payment Allocation` records whose `Batch Debt` belongs to a delinked invoice and recompute those debts, so no debt keeps reporting payment that AR no longer recognises.
+
+#### Scenario: A settled debt reopens after unreconcile
+
+- **WHEN** a payment that settled a batch debt is unreconciled
+- **THEN** its allocations are cancelled, the debt returns to its full outstanding amount with status "Chưa trả", the batch total is restored, and the Payment Entry itself remains submitted
+
+### Requirement: FIFO allocation locks the debt rows it consumes
+
+The system SHALL lock the customer's open `Batch Debt` rows (ordered oldest `due_date` first) while allocating a payment, so two payments submitted concurrently cannot both consume the same outstanding amount.
+
+#### Scenario: A second session cannot take a locked debt row
+
+- **WHEN** one session holds the allocation's row lock and another session issues `SELECT … FOR UPDATE` on the same rows
+- **THEN** the second session fails with a lock-wait timeout and the allocation path is proven to request the lock during a real Payment Entry submit

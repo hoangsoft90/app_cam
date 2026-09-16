@@ -188,6 +188,50 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
   song song); sau đó khôi phục đúng nguyên trạng và chạy lại → 8/8 PASS.
 - 📍 Bằng chứng nằm trong `result_2026-09-16_1405.txt`.
 
+## 20. `flags.ignore_validate` bỏ qua **cả `before_submit`** — và làm ERPNext không kịp điền field
+
+- ❌ Tôi định dùng `doc.flags.ignore_validate = True` để "lách" 1 đơn hàng vào DB không qua gate,
+  mô phỏng đường import/offline-sync. Kết quả: `MandatoryError: [Sales Order, SAL-ORD-…]:
+  conversion_rate, price_list_currency, plc_conversion_rate, item_name, uom, conversion_factor`.
+- ✅ Nguyên nhân đọc từ source: `run_before_save_methods()` mở đầu bằng
+  `if self.flags.ignore_validate: return` → **bỏ luôn** `validate` của controller (nên các field
+  price-list/UOM không được điền) và **bỏ luôn `before_submit`**. Nghĩa là cờ này không chỉ tắt gate
+  của mình mà tắt cả nghiệp vụ của ERPNext, và với test thì còn nguy hiểm hơn: nếu để nguyên cờ khi
+  submit thì gate submit của mình cũng không chạy ⇒ test **xanh giả**.
+- 📍 Cách đúng: đừng lách cờ; tạo ra trạng thái cần test bằng nghiệp vụ thật (ví dụ hạ hạn mức giữa
+  lúc draft đang chờ) — P1C T3.
+
+## 21. `save()` bị từ chối vẫn bump `modified` trong bộ nhớ → lần save sau chết vì TimestampMismatch
+
+- ❌ Trong 1 test: gọi `save()` để test nhánh bị chặn (thiếu lý do) → nhận `ValidationError` đúng như
+  mong đợi; nhưng lần `save()` thứ hai trên **cùng instance** báo
+  `TimestampMismatchError: … has been modified after you have opened it` dù không ai sửa row.
+- ✅ Đo được (probe in ra 4 mốc thời gian): DB **không** đổi (`after_save1_db_modified` giữ nguyên),
+  nhưng `doc.modified` trong bộ nhớ đã bị frappe đặt thành thời điểm hiện tại **trước khi** validate.
+  Lần save sau so `self.modified` với DB → tự thấy mình "cũ hơn" DB.
+- 📍 Cách đúng: sau một save bị từ chối mà vẫn muốn dùng lại instance → `doc.reload()` (đúng như
+  thông báo lỗi khuyên, và đúng cái Desk làm).
+- 📍 Phụ: điều này cũng chứng minh **save bị từ chối không ghi DB** — chi tiết quan trọng khi code
+  thuộc vùng tiền.
+
+## 22. Test lock phải nhìn vào **đường production**, không phải gọi lại helper
+
+- ❌ Test "FIFO dùng row lock" của tôi gọi thẳng `_open_debts(customer, for_update=True)` rồi kiểm
+  connection thứ hai bị chặn → xanh. Nhưng khi mutation-check (đổi chỗ gọi thật trong `on_submit`
+  thành `for_update=False`), test **vẫn xanh** — vì nó chưa bao giờ kiểm chỗ gọi thật.
+- ✅ Viết lại: (1) spy lên `_open_debts` để bắt tham số khi **một Payment Entry thật** được submit
+  (`AssertionError: the real submit path did not request the row lock (for_update=False)` khi mutation),
+  và (2) vẫn giữ phép thử lock thật bằng connection thứ hai (`1205, 'Lock wait timeout exceeded'`).
+- 📍 Quy tắc: test chỉ chứng minh được thứ nó **quan sát qua đường mà hệ thống thật sự đi**.
+
+## 23. `@frappe.whitelist()` mở cho **mọi** user đã đăng nhập — phải tự kiểm quyền
+
+- ❌ Tự review phát hiện: `get_credit_position(customer)` / `check_order_credit(...)` trả về hạn mức
+  của **bất kỳ** khách nào cho bất kỳ user đăng nhập (kể cả một Farmer thuộc trại khác).
+- ✅ Thêm `_require_credit_read(customer)` → `frappe.has_permission("Credit Score", "read", doc=name)`
+  (Farmer có `if_owner` nên chỉ thấy hồ sơ của mình), fail closed, kèm test âm (P1C T10).
+- 📍 Whitelist chỉ là "cho gọi qua HTTP", **không** phải kiểm quyền.
+
 ---
 
 ## Quy tắc mang đi (tóm tắt 1 dòng mỗi bài)
@@ -212,3 +256,10 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
 17. Chỉ cấp phát cho **thu tiền** (`Receive`); refund (`Pay` + Customer) chỉ bị chặn ở JS của Desk.
 18. Filter rỗng: dùng `["is", "not set"]` (phủ `''` + `NULL`); `None` không match gì.
 19. Test mới phải được mutation-check: làm hỏng code → test phải đỏ → khôi phục → xanh lại.
+20. Không dùng `flags.ignore_validate` để lách nghiệp vụ — nó tắt cả `before_submit` của mình và
+    khiến ERPNext không điền field ⇒ test xanh giả.
+21. `save()` bị từ chối không ghi DB nhưng vẫn bump `modified` trong bộ nhớ → `reload()` trước khi
+    dùng lại instance.
+22. Test lock/bảo vệ phải quan sát **đường production** (spy/hook thật), không chỉ gọi lại helper.
+23. `@frappe.whitelist()` không kiểm quyền — hàm API dữ liệu riêng của khách phải tự
+    `frappe.has_permission()`, fail closed.

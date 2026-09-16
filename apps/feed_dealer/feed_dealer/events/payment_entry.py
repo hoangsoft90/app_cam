@@ -36,11 +36,16 @@ submitted and its amount was allocated against the customer's oldest open debt
 (`ACC-PAY-…` → `ALLOC-…` 1,000,000 on `DEBT-2026-00940`), silently marking a
 debt as paid by a refund. p1b_acceptance T7 is the regression guard.
 
-Known gap, deliberately NOT covered here: ERPNext's "Unreconcile Payment" tool
-de-reconciles an invoice by posting a new Journal Entry while the Payment Entry
-stays submitted — nothing fires on this module in that flow, so the allocation
-would keep claiming the debt is paid. Reversing it needs the payment-ledger /
-P1C work. Do not assume on_cancel covers it.
+Two P1C hardening items, both applied here:
+
+* "Unreconcile Payment" (ERPNext delinks the payment from the invoice while the
+  Payment Entry stays submitted) fires NOTHING on this module - `on_cancel`
+  never runs. That path is now handled by
+  `feed_dealer.events.unreconcile_payment`, which reverses the allocations that
+  the unreconcile delinked. Do not assume on_cancel covers it.
+* Concurrent payments: `_open_debts(..., for_update=True)` locks the debt rows it
+  is about to allocate against, so two submissions racing for one customer cannot
+  both read the same `outstanding_amount` and hand the same money out twice.
 """
 
 import frappe
@@ -82,13 +87,35 @@ def _recalculate(debt_name):
 	return debt
 
 
-def _open_debts(customer):
-	"""Submitted debts of this customer that still owe money, oldest first."""
-	return frappe.get_all(
+OPEN_DEBT_FIELDS = (
+	"name",
+	"batch",
+	"due_date",
+	"allocated_amount",
+	"paid_amount",
+	"outstanding_amount",
+)
+
+
+def _open_debts(customer, for_update=False):
+	"""Submitted debts of this customer that still owe money, oldest first.
+
+	`for_update=True` takes a row lock (SELECT ... FOR UPDATE, see
+	`frappe.database.get_values`). The filter itself reads `outstanding_amount`,
+	so without the lock two payments submitted at the same moment both see the
+	pre-allocation amount and can pay the same slice twice. A locking read sees the
+	latest COMMITTED row rather than the transaction snapshot, so the second caller
+	waits for the first to commit and then finds the debt already settled.
+	The row order is fixed (oldest `due_date` first), so two allocations cannot
+	deadlock against each other.
+	"""
+	return frappe.db.get_values(
 		"Batch Debt",
 		filters={"customer": customer, "docstatus": 1, "outstanding_amount": [">", 0]},
-		fields=["name", "batch", "due_date", "allocated_amount", "paid_amount", "outstanding_amount"],
+		fieldname=list(OPEN_DEBT_FIELDS),
 		order_by="due_date asc, creation asc",
+		for_update=for_update,
+		as_dict=True,
 	)
 
 
@@ -116,7 +143,9 @@ def on_submit(doc, method=None):
 
 	paid_debts = {row.batch_debt for row in existing}
 	created = []
-	for debt in _open_debts(doc.party):
+	# Locked list: a concurrent payment for this customer blocks here until this
+	# transaction commits, then re-reads the debts instead of reusing a snapshot.
+	for debt in _open_debts(doc.party, for_update=True):
 		if remaining <= 0:
 			break
 		if debt.name in paid_debts:

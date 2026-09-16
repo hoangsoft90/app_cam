@@ -17,13 +17,15 @@
 
 ## Sắp tới — ngắn hạn (chờ quyết định của user)
 
-1. **[?] Drop 12 cột rác trên `tabBatch`** — script đã chuẩn bị, DDL không hoàn tác → cần duyệt
-2. **[?] Commit** — repo chưa có commit nào; sau khi user duyệt thì commit `apps/feed_dealer` +
-   `openspec/` + `deploy/` + các file md (gồm cả lô P1A fix + P1B)
-3. **[?] 2 lỗ hổng P1B** (design.md D14): *Unreconcile Payment* không bị đảo ngược; thanh toán đồng
-   thời cùng khách có thể cấp phát vượt → quyết định làm ngay hay để P1C
-4. (Tuỳ chọn) Dọn fixture acceptance: `bench execute feed_dealer.setup.p1b_acceptance.cleanup`
-   (P1B `run()` tự dọn trước mỗi lần chạy; P1A có `p1a_acceptance.cleanup`)
+1. **[?] Commit P1C** — hạn mức tiền + luật phân quyền (vùng loại trừ an toàn) → chờ user xác nhận
+2. **[?] Drop 12 cột rác trên `tabBatch`** — script đã chuẩn bị, DDL không hoàn tác → cần duyệt
+3. **[?] Khác biệt spec P1C** (xem checklist.md mục D): prompt P1C muốn "3 draft SO 20tr → submit
+   thứ 3 bị chặn", còn `plan_final_v2.2_mustfix.md` MUST-3 (mới hơn) chặn **ngay lúc tạo** đơn nháp
+   thứ 3. Tôi làm theo v2.2 và test cả hai — cần user xác nhận đây là hành vi muốn có.
+4. **P0.5** (import nợ đầu kỳ) hoặc **P1D** (trả hàng → `returned_amount`) là phase kế tiếp hợp lý;
+   P1D sẽ chạm `calculate_derived_fields` nên làm sau khi P1C đã lock hành vi ổn định.
+5. (Tuỳ chọn) Dọn fixture acceptance: `bench execute feed_dealer.setup.p1c_acceptance.cleanup`
+   (mọi bộ `run()` đều tự dọn trước khi chạy)
 
 ## Roadmap phase tiếp theo
 

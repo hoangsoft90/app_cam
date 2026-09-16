@@ -49,20 +49,25 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
 ## C. Chưa làm / cần làm tiếp
 
 - [ ] **Drop 12 cột rác trên `tabBatch`** (xem FAQ #1) — chờ user duyệt vì DDL không hoàn tác trên site thật
-- [ ] **Commit ban đầu** (`apps/`, `deploy/`, `openspec/`, các file md root) — repo chưa có commit nào;
-      đợi user xác nhận (thay đổi gồm DocType tài chính + phân quyền → thuộc vùng cần người duyệt)
+- [x] **Commit ban đầu** — đã làm: `eb75222` (P0+P1A+P1B), `0355d6b` (vá refund + khoá NULL),
+      `0e89ce7` (bỏ track `__pycache__`)
+- [ ] **Commit P1C** — chờ user xác nhận (hạn mức tiền + luật phân quyền → vùng cần người duyệt)
 - [ ] P0.5: import nợ đầu kỳ + tạo `opening_journal_entry` thật
-- [ ] P1C+: 2 lỗ hổng P1B cần quyết (design.md D14): *Unreconcile Payment* của ERPNext không bị
-      đảo ngược; thanh toán đồng thời cùng khách có thể cấp phát vượt (cần row lock)
+- [x] ~~2 lỗ hổng P1B~~ — **đã đóng ở P1C**: hook `Unreconcile Payment` (P1B T8) + row lock FIFO
+      (P1B T9); phần còn lại của v16 (cancel Unreconcile Payment không re-link) đã ghi rõ ở D16
 - [ ] P1B còn thiếu so với plan: phân bổ **thủ công** (hiện chỉ FIFO), nhánh Journal Entry riêng cho
       nợ đầu kỳ, đẩy `returned_amount` từ credit note (P1D)
 
 ## D. Cần hỏi lại user
 
 - [?] Drop cột rác trên `tabBatch`? (script sẵn, chỉ chạy khi duyệt)
-- [?] Commit ban đầu có thực hiện không? (acceptance #6 của prompt P0) Kèm theo đó: có muốn gộp
-      working.md/checklist.md/features.md/next.md/faq.md/LESSONS_LEARNED.md + result/handoff vào commit
-      không, hay giữ ngoài git?
+- [?] Commit ban đầu có thực hiện không? (acceptance #6 của prompt P0) → **đã commit 3 lần**
+      (`eb75222`, `0355d6b`, `0e89ce7`), các file md root + result/handoff **có** nằm trong git.
+      Còn lại: **P1C chờ duyệt commit** (task 11.9).
+- [?] Hành vi sai khác giữa prompt P1C (acceptance #1: "3 draft SO 20tr") và `plan_final_v2.2_mustfix.md`
+      MUST-3: bản v2.2 (mới hơn, ghi MUST) đếm **cả draft khi tạo**, nên đơn nháp thứ 3 bị chặn ngay lúc
+      tạo chứ không phải lúc submit. Tôi làm theo v2.2 và test **cả hai** hành vi (P1C T1/T2/T3).
+      Nếu user muốn đúng theo prompt cũ thì phải bỏ số hạng draft khi tạo (mở lại bypass 10 đơn nháp).
 - [?] **Warehouse "Main"**: prompt yêu cầu tạo, nhưng site thật đã có warehouse. Seeder đang CHỌN
       default_warehouse từ warehouse có sẵn (ưu tiên tên có "cám/cam") chứ KHÔNG tạo "Warehouse Main"
       mới. Giữ nguyên cách này, hay cần tạo warehouse riêng cho dự án?
