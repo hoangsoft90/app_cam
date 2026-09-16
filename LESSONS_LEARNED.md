@@ -159,6 +159,35 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
 - ⚠️ Kèm theo: ERPNext **ghi đè** `item_tax_template` của dòng hàng theo Item/Item Group
   (`TaxesAndTotals.validate_item_tax_template`) ⇒ muốn 2 nhóm thuế trên cùng lứa phải khác **item**.
 
+## 17. Chiều của payment quyết định có được cấp phát hay không (refund ≠ thu tiền)
+
+- ❌ `payment_type="Pay"` + `party_type="Customer"` (hoàn tiền lại cho khách) submit được qua API/import
+  và hook `Payment Entry.on_submit` đã **cấp phát 1.000.000 của khoản hoàn tiền cho khoản nợ cũ nhất của
+  khách** — tức là ghi nhận "khách đã trả" bằng một giao dịch tiền đi RA.
+- 🔍 ERPNext chỉ lọc dropdown `party_type` theo `payment_type` ở **JS của Desk**; server không chặn,
+  nên API/import/integration (P2 mobile) vẫn tạo được.
+- ✅ Gate rõ: chỉ cấp phát khi `party_type == "Customer"` **và** `payment_type == "Receive"`.
+- 📍 P1B T7: refund PE submit thành công → 0 allocation, khoản nợ giữ nguyên 1.000.000.
+
+## 18. `""` và `NULL` là hai thứ khác nhau trong filter — và `None` thì không match gì cả
+
+- ❌ Kiểm trùng bằng `{"item_tax_template": ""}` bỏ sót dòng có `NULL`: retry tạo **debt thứ hai**
+  cho cùng một nhóm (`DEBT-…232` với `None` + `DEBT-…233` với `''`). Nợ bị nhân đôi = mất tiền.
+- 🔍 Frappe ghi `''` cho field Link rỗng (đo được `item_tax_template is null` → 0), nhưng import /
+  data migration / `set_value(field, None)` để lại `NULL`; `{"field": ""}` không match `NULL`, còn
+  `{"field": None}` sinh `= NULL` nên **không match gì** (đo được: trả `None`).
+- ✅ Khi giá trị rỗng thì filter bằng `["is", "not set"]` (phủ cả `NULL` lẫn `''`); không bao giờ
+  truyền `None` làm giá trị filter.
+- 📍 P1A T7: re-fire 2 lần (một lần với `''`, một lần với `NULL`) → vẫn đúng 1 debt.
+
+## 19. Test PASS chỉ đáng tin khi nó FAIL lúc cố tình làm hỏng code (mutation check)
+
+- ❌ Hai test mới (T7/T8 của P1A) đều xanh — nhưng "xanh" chưa chứng minh test có tác dụng.
+- ✅ Cách kiểm: sửa tạm code về đúng hành vi cũ (`_tax_filter` trả `""`; nhánh draft thành "skip mọi
+  doc đã tồn tại") rồi chạy lại → **T7 FAIL** (2 debt cho 1 nhóm) và **T8 FAIL** (draft + debt mới
+  song song); sau đó khôi phục đúng nguyên trạng và chạy lại → 8/8 PASS.
+- 📍 Bằng chứng nằm trong `result_2026-09-16_1405.txt`.
+
 ---
 
 ## Quy tắc mang đi (tóm tắt 1 dòng mỗi bài)
@@ -180,3 +209,6 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
     submittable hoặc `before_save`.
 15. Cột derived của doc đã submit: `frappe.db.set_value(..., update_modified=False)`, không `save()`.
 16. Khoá idempotency phải đúng bằng bộ khoá đang group — thiếu 1 chiều là mất dữ liệu âm thầm.
+17. Chỉ cấp phát cho **thu tiền** (`Receive`); refund (`Pay` + Customer) chỉ bị chặn ở JS của Desk.
+18. Filter rỗng: dùng `["is", "not set"]` (phủ `''` + `NULL`); `None` không match gì.
+19. Test mới phải được mutation-check: làm hỏng code → test phải đỏ → khôi phục → xanh lại.

@@ -38,6 +38,13 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
       P0 `9 PASS: 9 FAIL: 0` (A7 giờ liệt kê 6 handler); `migrate` → `=== EXIT 0 ===`
 - [x] Cập nhật artifacts: data-model spec (Payment Allocation độc lập + `item_tax_template`),
       design D12–D14, tasks mục 10, working.md/features.md/next.md
+- [x] **Review lại chính code vừa viết** (OCR không có trong phiên → tự soát + probe thật):
+      sửa HIGH — refund PE (`Pay` + Customer) từng bị cấp phát như thu tiền (gate `payment_type ==
+      "Receive"`, test P1B T7); sửa MEDIUM — khoá idempotency không match `NULL` (dùng `["is",
+      "not set"]`, test P1A T7); thêm T8 cho nhánh draft còn sót; bỏ `save()` thừa.
+      **Mutation check**: khôi phục 2 hành vi cũ → T7/T8 đỏ đúng như mong đợi, khôi phục lại → xanh.
+      Kết quả cuối: P1A 8/8, P1B 7/7, P0 9/9 PASS (`result_2026-09-16_1405.txt`).
+- [ ] Commit vòng review này + dọn 58 file `__pycache__` khỏi git index — chờ user duyệt
 
 ## C. Chưa làm / cần làm tiếp
 

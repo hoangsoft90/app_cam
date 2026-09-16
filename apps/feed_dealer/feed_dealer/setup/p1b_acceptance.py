@@ -16,6 +16,8 @@ Covers the prompt's P1B acceptance list, on real submitted documents:
                                   Feed Dealer Settings (proven by changing the rate)
   T6  re-fired hook / SoT      -> a retry never pays a debt twice, and the batch
                                   view can never exceed Payment Entry.paid_amount
+  T7  refund does not allocate -> a `Pay` entry to a Customer (ERPNext allows it
+                                  by API) leaves the debts alone
 
 `run()` and `debug()` both clear their own fixtures first, so every assertion is
 absolute instead of relative to whatever a previous run left behind. Fixtures
@@ -325,6 +327,34 @@ def check_overdue_and_fee_from_settings():
 	)
 
 
+def check_refund_does_not_allocate():
+	"""T7: money going back to the customer must never settle a batch debt.
+
+	`payment_type = "Pay"` with `party_type = "Customer"` is a refund. ERPNext
+	filters the party-type dropdown per payment type in the Desk UI only, so an
+	integration/import (or the P2 mobile API) can post one; measured on this site,
+	it submits and used to allocate its amount against the customer's oldest open
+debt. The hook now refuses anything that is not a receipt.
+	"""
+	inv, _batch_name, debt_name = _batched_invoice("T7", qty=5, rate=200_000)
+	pe = frappe.get_doc(get_payment_entry("Sales Invoice", inv.name))
+	pe.payment_type = "Pay"
+	pe.paid_from, pe.paid_to = pe.paid_to, pe.paid_from
+	pe.reference_no = f"{PREFIX} refund"
+	pe.reference_date = pe.posting_date or nowdate()
+	pe.insert(ignore_permissions=True)
+	pe.submit()
+	frappe.db.commit()
+
+	allocs = _allocations(pe.name)
+	if allocs:
+		raise AssertionError(f"a refund must not create allocations, got {allocs}")
+	debt = _debt(debt_name)
+	if flt(debt.paid_amount) != 0 or flt(debt.outstanding_amount) != 1_000_000:
+		raise AssertionError(f"a refund must leave the debt untouched: {debt}")
+	return f"{pe.name} (Pay/Customer refund) -> 0 allocations, {debt_name} still owes 1,000,000"
+
+
 def check_no_double_allocation():
 	"""T6: a re-fired hook allocates nothing again, and SoT holds."""
 	inv, _batch_name, debt_name = _batched_invoice("T6", qty=10, rate=100_000)
@@ -360,6 +390,7 @@ CHECKS = (
 	("T4  cancel payment restores", check_cancel_payment_restores),
 	("T5  overdue + fee from Settings", check_overdue_and_fee_from_settings),
 	("T6  no double allocation", check_no_double_allocation),
+	("T7  refund does not allocate", check_refund_does_not_allocate),
 )
 
 

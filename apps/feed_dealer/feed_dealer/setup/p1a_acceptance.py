@@ -11,6 +11,8 @@ Covers the prompt's five cases:
   T4  cancel an unpaid SI             -> its debts docstatus=2, total_debt refreshed
   T5  cancel with paid_amount > 0     -> invoice cancel blocked (payment guard)
   T6  2 tax templates on ONE batch    -> 2 debts, sum = both lines' net amount
+  T7  re-fire on a no-template group   -> no duplicate (NULL/'' must match)
+  T8  leftover draft for a group       -> the draft is submitted, not skipped
 
 Real Sales Invoice documents are created and submitted against a real item and
 taxes-free pricing, so the allocation math is exercised end-to-end (including
@@ -24,6 +26,8 @@ import traceback
 import frappe
 from frappe.utils import add_days, flt, nowdate
 
+from feed_dealer.events.sales_invoice import on_submit
+
 PREFIX = "P1A-ACCEPT"
 
 # T6 needs one invoice carrying two different tax treatments on the SAME batch.
@@ -36,6 +40,7 @@ PREFIX = "P1A-ACCEPT"
 KCT_TAX_TEMPLATE = "KCT Cám chăn nuôi - MP"
 VAT_TAX_TEMPLATE = "Vietnam Tax - MP"
 VAT_ITEM = f"{PREFIX} Item VAT"
+PLAIN_ITEM = f"{PREFIX} Item Plain"
 
 # <paid_amount_stub>: T5 writes directly to the DB column, bypassing the
 # controller, to simulate "a Payment Allocation landed in P1B" without
@@ -120,6 +125,22 @@ def _vat_item():
 			}
 		).insert(ignore_permissions=True)
 	return VAT_ITEM
+
+
+def _plain_item():
+	"""Item in a group with no tax rule, so its line keeps an EMPTY template."""
+	if not frappe.db.exists("Item", PLAIN_ITEM):
+		frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": PLAIN_ITEM,
+				"item_name": PLAIN_ITEM,
+				"item_group": "All Item Groups",
+				"stock_uom": "Kg",
+				"is_stock_item": 0,
+			}
+		).insert(ignore_permissions=True)
+	return PLAIN_ITEM
 
 
 def _batch(customer, tag):
@@ -324,6 +345,61 @@ def check_two_tax_groups_one_batch():
 			f"KCT {by_template[KCT_TAX_TEMPLATE]:,.0f} + VAT {by_template[VAT_TAX_TEMPLATE]:,.0f}")
 
 
+def check_refire_or_none_row_has_no_template():
+	"""T7: the idempotency check works for a group with NO tax template.
+
+	Every group in T1–T5 on this site carries a template (the item group's tax
+	rule fills it in), so the no-template case — the plain one when an item has no
+	tax rule at all — only shows up here. It also covers the `NULL` variant that
+	an import or a raw SQL write can leave behind: `""` and `NULL` must both be
+	matched, otherwise a retry creates a second debt (duplicated money).
+	"""
+	batch = _batch(_customer(), "T7")
+	inv = _invoice([{"qty": 5, "rate": 200_000, "batch": batch, "item": _plain_item()}])
+	debts = _debts(inv.name)
+	if len(debts) != 1 or debts[0].item_tax_template not in (None, ""):
+		raise AssertionError(f"fixture broken: expected one no-template debt, got {debts}")
+
+	# Re-fire as a retry would, first with the value this app writes...
+	on_submit(frappe.get_doc("Sales Invoice", inv.name), None)
+	if len(_debts(inv.name)) != 1:
+		raise AssertionError(f"re-fire duplicated the debt: {_debts(inv.name)}")
+
+	# ...then with NULL, as an import/raw SQL write would leave it.
+	frappe.db.set_value("Batch Debt", debts[0].name, "item_tax_template", None, update_modified=False)
+	frappe.db.commit()
+	on_submit(frappe.get_doc("Sales Invoice", inv.name), None)
+	after = _debts(inv.name)
+	if len(after) != 1:
+		raise AssertionError(f"a NULL template made the retry duplicate the debt: {after}")
+	return f"{inv.name} re-fired twice (lenient '' + NULL) -> still 1 debt {after[0].name}"
+
+
+def check_leftover_draft_is_submitted():
+	"""T8: a group whose debt is still a draft gets completed, not skipped.
+
+	The draft is produced by forcing the debt row back to docstatus=0 (a raw DB
+	write): that is the state a died-mid-submit attempt or a hand-made draft
+	leaves behind, and it cannot be reproduced through the hook itself because a
+	failure inside `on_submit` rolls the whole transaction back.
+	"""
+	batch = _batch(_customer(), "T8")
+	inv = _invoice([{"qty": 3, "rate": 100_000, "batch": batch}])
+	debt = _debts(inv.name)[0]
+	frappe.db.set_value("Batch Debt", debt.name, "docstatus", 0, update_modified=False)
+	frappe.db.commit()
+
+	on_submit(frappe.get_doc("Sales Invoice", inv.name), None)
+	after = _debts(inv.name)
+	if len(after) != 1:
+		raise AssertionError(f"the group must be completed, not duplicated: {after}")
+	if after[0].docstatus != 1:
+		raise AssertionError(f"the leftover draft must end up submitted: {after[0]}")
+	if flt(after[0].allocated_amount) != 300_000:
+		raise AssertionError(f"amount must be the group's net: {after[0]}")
+	return f"{debt.name} forced to draft -> re-fire submitted it (docstatus=1, 300,000), no sibling"
+
+
 CHECKS = (
 	("T1  1 batch -> 1 debt", check_single_batch_si),
 	("T2  2 batches -> 2 debts", check_multi_batch_si),
@@ -331,6 +407,8 @@ CHECKS = (
 	("T4  cancel unpaid SI", check_cancel_unpaid_si),
 	("T5  cancel blocked when paid", check_cancel_blocked_when_paid),
 	("T6  2 tax groups, 1 batch", check_two_tax_groups_one_batch),
+	("T7  no-template group re-fire", check_refire_or_none_row_has_no_template),
+	("T8  leftover draft completed", check_leftover_draft_is_submitted),
 )
 
 

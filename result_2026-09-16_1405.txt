@@ -1,0 +1,102 @@
+CODE REVIEW — P1A FIX + P1B (soát lại chính code vừa commit eb75222)
+Thời điểm: 2026-09-16 14:05 (giờ máy này)
+Cách làm: tự review vì /open-code-review KHÔNG có trong phiên này (đã báo user).
+Mọi nghi vấn đều được kiểm chứng bằng probe chạy thật trên site, không suy đoán.
+
+===============================================================================
+1. PHÁT HIỆN — HIGH: refund Payment Entry bị cấp phát như thể là thu tiền
+===============================================================================
+Nghi vấn: hook chỉ gate `party_type == "Customer"`, còn `payment_type` thì không xét.
+Kiểm chứng (probe thật, `get_payment_entry` rồi đổi payment_type = "Pay" + hoán đổi
+paid_from/paid_to + set reference_no/date):
+
+    debt before: DEBT-2026-01165 0.0 1000000.0
+    refund PE SUBMITTED: ACC-PAY-2026-00130
+    allocations created for it: [{'name': 'ALLOC-2026-01168',
+                                  'batch_debt': 'DEBT-2026-00940',
+                                  'paid_amount': 1000000.0, 'docstatus': 1}]
+    debt after refund: {'paid_amount': 0.0, 'outstanding_amount': 1000000.0, 'status': 'Chưa trả'}
+
+→ Tiền ĐI RA (hoàn tiền cho khách) đã được ghi thành "khách đã trả" cho một khoản nợ KHÁC.
+Vì sao tới được: ERPNext chỉ lọc dropdown `party_type` theo `payment_type` ở **JS của Desk**;
+server không chặn (grep toàn bộ `frappe.throw` trong payment_entry.py: chỉ có "Party Type is
+mandatory", "Party is mandatory", và message về Party Account — không có luật nào chặn
+Pay + Customer). Import/API/mobile P2 đều có thể tạo.
+
+SỬA: gate `party_type == "Customer" AND payment_type == "Receive"`.
+TEST: P1B T7 — refund PE submit được → 0 allocation, nợ giữ nguyên 1.000.000.
+
+===============================================================================
+2. PHÁT HIỆN — MEDIUM: `""` vs `NULL` trong khoá idempotency → nợ nhân đôi
+===============================================================================
+Nghi vấn: `_group_items` trả `""` cho nhóm không có template; nếu dòng trong DB là SQL NULL
+thì `{"item_tax_template": ""}` không match → retry tạo debt thứ hai.
+
+Kiểm chứng 1 (dòng do app tạo): `item_tax_template is null` → 0, giá trị `''`;
+   `exists({... ""})` → MATCH; `exists({... None})` → None (None sinh `= NULL`, không match gì);
+   `exists({... ["is","not set"]})` → MATCH.  ⇒ hành vi hiện tại ĐÚNG cho dòng do app tạo.
+Kiểm chứng 2 (dòng kiểu import/raw SQL): set cột về NULL rồi re-fire hook → **TẠO THÊM 1 DEBT**
+   (đo được ở lần mutation bên dưới: DEBT-…232 `item_tax_template: None` + DEBT-…233 `''`).
+
+SỬA: khi rỗng thì filter bằng `["is", "not set"]` (phủ cả NULL lẫn ''), không bao giờ truyền None.
+TEST: P1A T7 — re-fire 2 lần (một lần `''`, một lần `NULL`) → vẫn đúng 1 debt.
+
+===============================================================================
+3. PHÁT HIỆN — LOW: nhánh "draft còn sót" (BUG P1A-2) không có test
+===============================================================================
+- Nhánh này không thể tái hiện qua chính hook (lỗi giữa `on_submit` rollback cả transaction),
+  nên trước đó nó chỉ là code phòng thủ không ai kiểm.
+- Bổ sung T8: ép một debt về docstatus=0 (raw DB), re-fire → draft đó phải được submit,
+  không sinh debt song song, đúng số tiền của nhóm.
+- Đồng thời bỏ `debt.save()` thừa (submit() đã save) — giảm 1 lần ghi vô nghĩa.
+
+===============================================================================
+4. MUTATION CHECK — chứng minh test mới CÓ RĂNG (không PASS rỗng)
+===============================================================================
+Cố tình làm hỏng lại đúng 2 hành vi cũ rồi chạy p1a_acceptance:
+
+    T7  no-template group re-fire  FAIL  a NULL template made the retry duplicate the debt:
+        [DEBT-2026-01232 item_tax_template=None, DEBT-2026-01233 item_tax_template='']
+    T8  leftover draft completed   FAIL  the group must be completed, not duplicated:
+        [DEBT-2026-01237 docstatus=0 300,000, DEBT-2026-01238 docstatus=1 300,000]
+    TOTAL: 8   PASS: 6   FAIL: 2
+
+Khôi phục nguyên trạng → xanh lại:
+
+    T7  PASS  re-fired twice (lenient '' + NULL) -> still 1 debt DEBT-2026-01267
+    T8  PASS  forced to draft -> re-fire submitted it (docstatus=1, 300,000), no sibling
+    TOTAL: 8   PASS: 8   FAIL: 0   → P1A ACCEPTANCE: ALL PASS
+
+===============================================================================
+5. KẾT QUẢ SAU KHI SỬA (chạy lại toàn bộ trên site thật)
+===============================================================================
+    p1a_acceptance.run  TOTAL: 8   PASS: 8   FAIL: 0   P1A ACCEPTANCE: ALL PASS
+    p1b_acceptance.run  TOTAL: 7   PASS: 7   FAIL: 0   P1B ACCEPTANCE: ALL PASS
+    p0_acceptance.run   TOTAL: 9   PASS: 9   FAIL: 0   P0 ACCEPTANCE: ALL PASS
+
+===============================================================================
+6. NHỮNG ĐIỀU ĐÃ SOÁT NHƯNG KHÔNG THÀNH VẤN ĐỀ (ghi lại để khỏi soát lại)
+===============================================================================
+- Không có secret nào lọt vào diff; `.env` + `.agent/` vẫn bị gitignore.
+- Không còn code debug/tạm (`_scratch.py`, `_probe.py`, `_review_probe.py` đã xoá; không còn
+  `print(`/`TODO` trong app).
+- `Payment Allocation` đổi sang DocType độc lập: không nơi nào khác giả định nó là child table
+  (chỉ `Batch Debt._get_paid_from_allocations()` đọc nó, đọc qua docstatus của chính nó).
+- Không có dead code mới: `_tax_filter`, `_plain_item`, `DERIVED_FIELDS`, `_recalculate` đều có
+  người dùng; import `_recalculate`/`on_submit` trong test đều được gọi.
+- Scope: đúng phạm vi prompt A/B; không đụng `DROP` cột `tabBatch`, không nhảy P2/P4.
+- Rủi ro còn lại (đã ghi trong design.md D14, để P1C theo quyết định của user):
+  (1) ERPNext *Unreconcile Payment* không bị lớp này đảo ngược;
+  (2) 2 Payment Entry submit đồng thời cùng khách có thể cùng đọc outstanding cũ → cần row lock.
+- Tồn đọng từ commit trước: 58 file `__pycache__/*.pyc` đã bị commit nhầm (đã thêm vào
+  .gitignore; cần user duyệt 1 lệnh `git rm -r --cached` để dọn khỏi index).
+
+===============================================================================
+7. FILE CỦA VÒNG REVIEW NÀY
+===============================================================================
+    apps/feed_dealer/feed_dealer/events/payment_entry.py    (gate payment_type == Receive + docstring)
+    apps/feed_dealer/feed_dealer/events/sales_invoice.py    (_tax_filter + bỏ save() thừa)
+    apps/feed_dealer/feed_dealer/setup/p1a_acceptance.py    (T7 no-template/NULL, T8 draft, _plain_item)
+    apps/feed_dealer/feed_dealer/setup/p1b_acceptance.py    (T7 refund)
+    .agents/skills/erpnext-v16-pitfalls/SKILL.md            (mục 1.3–1.5, 2.3–2.4, mục 6 review practice)
+    LESSONS_LEARNED.md                                      (#14–#19)

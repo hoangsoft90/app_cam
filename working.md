@@ -67,6 +67,16 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 - Xoá file trên Mac: `rm`/`docker exec rm` bị chặn quyền (file do user host sở hữu) — dùng
   `python3 .agent/mac.py "python3 -c \"__import__('os').remove('<đường dẫn host>')\""`.
 
+- [2026-09-16] **Review lại P1A/P1B (sau commit eb75222) — tìm ra 1 bug High + 1 Medium, đã sửa + có test.**
+  High: refund Payment Entry (`payment_type="Pay"` + `party_type="Customer"`) submit được qua API
+  (ERPNext chỉ chặn ở JS của Desk) và hook cũ **cấp phát 1.000.000 của tiền hoàn về khách cho một
+  khoản nợ cũ** → đã gate `payment_type == "Receive"` (P1B T7). Medium: khoá idempotency dùng `""`
+  không match dòng có `NULL` (import/raw SQL) → retry tạo debt thứ hai; đã dùng `["is","not set"]`
+  (P1A T7). Low: nhánh "draft còn sót" (P1A-2) trước đó không có test → thêm T8, bỏ `save()` thừa.
+  **Mutation check**: cố tình khôi phục 2 hành vi cũ → T7/T8 FAIL (2 debt cho 1 nhóm; draft + debt mới
+  song song), khôi phục lại → xanh. Bằng chứng: P1A 8/8, P1B 7/7, P0 9/9 PASS;
+  `result_2026-09-16_1405.txt`; bài học #14–#19 trong LESSONS_LEARNED.md + skill
+  `erpnext-v16-pitfalls` (mục 1.3–1.5, 2.3–2.4, 6).
 - [2026-09-16] **P1A vá + P1B Payment Allocation: xong + verify trên site thật.**
   P1A: khoá idempotency đổi thành đúng bộ ba đang group `(sales_invoice, batch,
   item_tax_template)` (trước đó chỉ `(invoice, batch)` nên **nhóm thuế thứ 2 của một hóa đơn bị

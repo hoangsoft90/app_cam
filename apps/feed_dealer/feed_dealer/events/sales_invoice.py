@@ -43,6 +43,17 @@ from frappe.utils import flt
 BATCH_FIELD = "custom_batch"
 
 
+def _tax_filter(tax_template):
+	"""Filter value that matches a group with no tax template.
+
+	`""` and SQL `NULL` must behave the same here: this app writes `""`, but an
+	import, a data migration or a raw SQL write can leave `NULL`, and if the two
+	diverge the idempotency check misses that debt and a retry creates a second
+	one — a duplicated debt is lost money. `["is", "not set"]` covers both.
+	"""
+	return tax_template or ["is", "not set"]
+
+
 def _group_items(doc):
 	"""Return {(batch, item_tax_template): amount} for rows that carry a batch."""
 	groups = {}
@@ -78,7 +89,11 @@ def on_submit(doc, method=None):
 
 	created, resubmitted, skipped = [], [], []
 	for (batch, tax_template), amount in groups.items():
-		key = {"sales_invoice": doc.name, "batch": batch, "item_tax_template": tax_template}
+		key = {
+			"sales_invoice": doc.name,
+			"batch": batch,
+			"item_tax_template": _tax_filter(tax_template),
+		}
 		if frappe.db.exists("Batch Debt", {**key, "docstatus": 1}):
 			# Idempotency: this exact group is already allocated, so a re-fired
 			# hook (or a retry) must not create a second debt for it.
@@ -89,12 +104,12 @@ def on_submit(doc, method=None):
 		if draft:
 			# A previous attempt died between insert and submit, leaving a draft.
 			# Finish that draft instead of skipping it (which would leave the
-			# group unallocated forever) or creating a rival document.
+			# group unallocated forever) or creating a rival document. `submit()`
+			# saves anyway, so no separate save() call is needed here.
 			debt = frappe.get_doc("Batch Debt", draft)
 			debt.allocated_amount = flt(amount)
 			debt.customer = doc.customer
 			debt.due_date = doc.due_date
-			debt.save(ignore_permissions=True)
 			debt.submit()
 			resubmitted.append(debt.name)
 		else:

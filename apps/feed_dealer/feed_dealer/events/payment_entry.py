@@ -6,7 +6,8 @@ Contract (prompt P1B + phase_01_core_erp.md §4.3, Week 2):
   `Batch Debt`s (oldest `due_date` first) and record one submitted
   `Payment Allocation` per slice, then refresh the debt's derived fields.
   Idempotent: a re-fired hook pays the *remainder* of the payment instead of
-  paying the same debt twice.
+  paying the same debt twice. Only a RECEIPT (`payment_type == "Receive"`) is
+  allocated — see the refund note below.
 * on_cancel  — cancel the allocations this payment created and recalculate the
   debts they touched, so no Batch Debt stays stuck at "Đã trả".
 
@@ -24,6 +25,16 @@ never invents an invoice that was not paid.
 Money never leaves the AR document: the amount handed out can never exceed
 `Payment Entry.paid_amount`, so the batch view is always a slice of what the
 receivable actually holds. The leftover (if any) simply stays unallocated.
+
+A refund (`payment_type == "Pay"` with `party_type == "Customer"`) must not
+allocate: that money moves from us back to the customer, so it *raises* what
+we are owed, never settles a batch debt. ERPNext blocks this combination only
+in the Desk UI (the party-type dropdown is filtered per payment type) — not on
+the server, and not for imports, integrations or the mobile API — so the hook
+checks it itself. Measured before the guard existed: a refund Payment Entry
+submitted and its amount was allocated against the customer's oldest open debt
+(`ACC-PAY-…` → `ALLOC-…` 1,000,000 on `DEBT-2026-00940`), silently marking a
+debt as paid by a refund. p1b_acceptance T7 is the regression guard.
 
 Known gap, deliberately NOT covered here: ERPNext's "Unreconcile Payment" tool
 de-reconciles an invoice by posting a new Journal Entry while the Payment Entry
@@ -83,8 +94,13 @@ def _open_debts(customer):
 
 def on_submit(doc, method=None):
 	"""Allocate this payment across the customer's open debts (FIFO)."""
-	if doc.get("party_type") != "Customer":
-		return {"skipped": f"party_type={doc.get('party_type')!r} is not a customer"}
+	if doc.get("party_type") != "Customer" or doc.get("payment_type") != "Receive":
+		return {
+			"skipped": (
+				f"party_type={doc.get('party_type')!r}, payment_type={doc.get('payment_type')!r}"
+				" is not a customer receipt"
+			)
+		}
 
 	existing = frappe.get_all(
 		"Payment Allocation",
