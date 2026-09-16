@@ -46,3 +46,9 @@ Thumbs.db
 *.log
 .env
 .env.*
+
+# Python / Frappe app
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
