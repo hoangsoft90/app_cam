@@ -1,0 +1,47 @@
+# feed-dealer.override.yml — đưa app `feed_dealer` (repo app_cam) vào bench frappe_docker.
+#
+# Copy file này sang /Users/hoang/htdocs/projects3/frappe_docker/ trước khi dùng.
+#
+# LỆNH CHUẨN — **tất cả các `-f` đều bắt buộc**, thiếu một cái là recreate mất app đó:
+#   cd /Users/hoang/htdocs/projects3/frappe_docker
+#   docker compose -f pwd.yml -f custom-app.override.yml -f vi-locale.override.yml \
+#     -f camvlxd.override.yml -f feed-dealer.override.yml up -d
+#   docker restart frappe_docker-frontend-1     # nginx giữ IP backend cũ -> 502 nếu bỏ bước này
+#
+# Bind mount thuần — KHÔNG cần `pip install -e` nếu layout đúng:
+#   apps/feed_dealer/
+#     pyproject.toml
+#     feed_dealer/            <- gói Python (hooks.py, patches/, setup/, events/)
+#       feed_dealer/          <- thư mục module = scrub("Feed Dealer")
+#         __init__.py         <- BẮT BUỘC (thiếu -> namespace package -> sai đường dẫn DocType)
+#         doctype/<scrub(name)>/
+#
+# `apps/` nằm trong IMAGE, không nằm trong volume `sites`, nên recreate mà thiếu file này
+# là app biến mất khỏi bench. `sites/apps.txt` do service `configurator` tự sinh lại
+# (`ls -1 apps > sites/apps.txt`).
+#
+# NGUỒN (source of truth): <repo app_cam>/apps/feed_dealer
+
+# PYTHONPATH là BẮT BUỘC trên image này, không phải tối ưu:
+#   * site-packages nằm trong IMAGE (/usr/local/lib/python3.14/site-packages),
+#     không nằm trong volume nào, nên mọi `pip install -e` trong container sẽ bị
+#     xoá sạch mỗi lần recreate.
+#   * Hậu quả thật đã gặp: sau recreate, các service chết vòng lặp với
+#     `ModuleNotFoundError: No module named 'camvlxd'` (scheduler đã crash sẵn
+#     từ trước), và cách chữa cũ là `docker exec ... pip install -e` cho TỪNG
+#     container — vừa thủ công vừa vỡ lại ở lần recreate sau.
+#   * Khai báo PYTHONPATH ở đây làm bench tự lành sau mỗi recreate, cho cả 3 app
+#     đang bind-mount (feed_dealer + custom_app + camvlxd), nên không cần pip nữa.
+#     Layout app vẫn phải đúng: PYTHONPATH không sửa được layout sai.
+x-feed-dealer-app: &feed_dealer
+  volumes:
+    - /Users/hoang/htdocs/erpnext/app_cam/feed_dealer:/home/frappe/frappe-bench/apps/feed_dealer:cached
+  environment:
+    PYTHONPATH: /home/frappe/frappe-bench/apps/feed_dealer:/home/frappe/frappe-bench/apps/custom_app:/home/frappe/frappe-bench/apps/camvlxd
+
+services:
+  backend: *feed_dealer
+  configurator: *feed_dealer
+  queue-long: *feed_dealer
+  queue-short: *feed_dealer
+  scheduler: *feed_dealer

@@ -1,0 +1,108 @@
+# result_2026-09-16_0945.txt — kết quả gần nhất (P0 foundation trên site thật)
+
+Thời điểm: 2026-09-16 09:45 (giờ máy workspace)
+Target: ERPNext v16 (frappe 16.17.2 / erpnext 16.16.0) — site `frontend` trên Mac của user, vào qua ngrok (REST) + MCP bridge (bench).
+
+## Lệnh chính vừa chạy (mới nhất → cũ)
+
+### 1. Acceptance sau khi migrate 2 lần — PASS TOÀN BỘ
+Lệnh: `bench --site frontend execute feed_dealer.setup.p0_acceptance.run`
+
+```
+CHECK                         RESULT  DETAIL
+------------------------------------------------------------------------
+A2  DocTypes installed        PASS    19 DocTypes present in module Feed Dealer, none custom
+A2b derived fields read-only  PASS    6 derived fields read_only; sales_invoice.reqd=0
+A3  opening-balance debt OK   PASS    DEBT-2026-00651: sales_invoice=None, outstanding=10,000,000, status=Chưa trả
+A4  ordinary debt rejected    PASS    rejected as expected: Phải chọn 'Hóa đơn bán hàng' (sales_invoice) khi đây không phải nợ đầu kỳ...
+A5  farmer isolation          PASS    farmer sees 1 own Feed Batch(es) (own=LOT-2026-00638); other-customer LOT-2026-00639 hidden; has_permission(other)=False
+A6  settings persist          PASS    saved and re-read late_payment_interest_rate=0.000123
+A7  hooks registered          PASS    5 handlers registered and callable: Sales Invoice.on_submit, Sales Invoice.on_cancel, Payment Entry.on_submit, Payment Entry.on_cancel, Feed Batch.on_update
+A8  AI read-only posture      PASS    3 financial DocTypes expose no write path to non-manager roles
+A9  masters present           PASS    4 roles, 4 item groups, 4 customer groups, 2 price lists, UOM Bao/Tấn/Kg; 1 Bao = 25.0 Kg; 3 company(ies) all VND
+------------------------------------------------------------------------
+TOTAL: 9   PASS: 9   FAIL: 0
+{"site": "frontend", "failed": []}
+P0 ACCEPTANCE: ALL PASS
+```
+
+### 2. Migrate lần 2 — EXIT 0 (idempotent)
+Log `/tmp/mig2.log` (trong container backend):
+```
+Removing orphan doctypes...
+...
+Updating installed applications...
+Executing `after_migrate` hooks...
+Queued rebuilding of search index for frontend
+=== EXIT 0 ===
+```
+
+### 3. Migrate lần 1 — EXIT 0
+Log `/tmp/mig1.log` (trong container backend) — kết thúc tương tự, `=== EXIT 0 ===`.
+
+### 4. Kiểm tra cấu trúc sau migrate
+```
+select count(*), sum(custom) from tabDocType where module='Feed Dealer'
+→ 19, 0
+```
+
+### 5. Seeder masters (lần chạy gần nhất)
+```
+- UOM Tấn (category Mass)
+uom_conversions:
+- UOM Conversion Factor Bao -> Kg = 25.0 (Mass)
+- UOM Conversion Factor Tấn -> Kg = 1000.0 (Mass)
+item_groups: Cám lợn, Cám gà, Cám cá, Thuốc thú y
+customer_groups: Trại lớn, Trại vừa, Hộ nhỏ, Đại lý cấp 2
+price_lists: Giá sỉ, Giá lẻ
+settings: Feed Dealer Settings.default_company = Minh Phát Cám & VLXD
+companies: [('SANLOAN','VND'), ('Minh Phát Cám & VLXD','VND'), ('DEMO POC CO','VND')]
+```
+
+### 6. Xoá Docker trên máy workspace (đầu phiên)
+```
+containers: 0 | volumes: 0 | build cache: 0
+đã xoá: image frappe/erpnext:v15.121.2, postgres:15, redis:7-alpine, network app-cam_default
+còn lại: alpine:3.19 (11.6MB, có trước)
+```
+
+## Trạng thái sau phiên
+- OpenSpec `p0-feed-dealer-foundation`: 23/25 task (2 task còn lại chờ quyết định user)
+- Git: chưa commit (repo chưa có commit nào)
+- Cầu MCP: đã hồi phục sau 1 lần đứt; migrate/execute dùng bình thường trở lại
+
+## Việc còn treo (cần user)
+1. Drop 12 cột rác trên `tabBatch` (DDL không hoàn tác)
+2. Commit ban đầu (đợi duyệt)
+
+## Đối chiếu với .plan/prompts/prompt_P0_foundation.md (2026-09-16)
+
+RESULT template của prompt:
+```
+Status: DONE (trừ 2 mục chờ user — xem dưới)
+Commit: CHƯA (repo chưa có commit; đợi duyệt — acceptance #6)
+DocTypes created: 19 (module Feed Dealer, 0 custom)
+Evidence: acceptance 9/9 PASS; migrate EXIT 0 x2 (/tmp/mig1.log, /tmp/mig2.log);
+          A3-A9 chi tiết ở trên
+```
+
+| Ý trong prompt | Trạng thái | Ghi chú |
+|---|---|---|
+| Cài ERPNext **v15** | DEV (đã duyệt) | User chốt bám v16 = site thật trên Mac |
+| Docker Compose "(hoặc bench tương đương)" | ✅ | bench tương đương = frappe_docker trên Mac; stack Docker tự dựng đã xoá theo yêu cầu |
+| Site chạy, login Administrator | ✅ | get_logged_user = Administrator |
+| new-app + install + migrate, module Feed Dealer | ✅ | 19 DocType, migrate EXIT 0 x2 |
+| Company (VND) | ✅ | verify 3 company VND có sẵn; không tạo mới (site thật) |
+| **Warehouse Main** | ⚠ CHƯA | Site có sẵn warehouse thật → seeder chọn default_warehouse từ warehouse có sẵn, KHÔNG tạo "Warehouse Main" mới. Cần user quyết: dùng luôn warehouse có sẵn, hay tạo riêng? |
+| UOM Bao/Tấn/Kg | ✅ | + conversion v16 (1 Bao=25Kg) |
+| Item/Customer Groups, Price Lists | ✅ | A9 PASS |
+| 4 Roles | ✅ | A9 PASS |
+| 13 DocType đặt tên trong prompt | ✅ | 19/19 (bao gồm child tables); `Batch` → `Feed Batch` (DEV bắt buộc: trùng tên với ERPNext) |
+| hooks skeleton | ✅ | A7: 5 handler callable |
+| Permissions 4 role | ✅ | A8 PASS |
+| Acceptance 1 (migrate OK) | ✅ | EXIT 0 x2 |
+| Acceptance 2 (opening debt) | ✅ | A3 PASS |
+| Acceptance 3 (reject thường) | ✅ | A4 PASS |
+| Acceptance 4 (farmer isolation) | ✅ | A5 PASS |
+| Acceptance 5 (settings persist) | ✅ | A6 PASS |
+| **Acceptance 6 (commit)** | ❌ CHƯA | Repo chưa có commit nào; đợi user duyệt (task 8.5) |

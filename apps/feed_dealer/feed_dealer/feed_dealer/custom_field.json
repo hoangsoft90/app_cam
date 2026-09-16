@@ -1,0 +1,17 @@
+[
+  {
+    "dt": "Sales Invoice Item",
+    "fieldname": "custom_batch",
+    "label": "Lứa nuôi",
+    "fieldtype": "Link",
+    "options": "Feed Batch",
+    "insert_after": "item_tax_template",
+    "in_list_view": 1,
+    "print_hide": 0,
+    "allow_on_submit": 1,
+    "read_only": 0,
+    "no_copy": 0,
+    "search_index": 0,
+    "description": "Lứa nuôi nhận nợ cho dòng hàng này (tạo bởi app feed_dealer). Dòng không chọn lứa sẽ không sinh nợ theo lứa."
+  }
+]

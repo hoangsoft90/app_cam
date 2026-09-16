@@ -1,0 +1,134 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "default_company",
+  "default_warehouse",
+  "late_payment_interest_rate",
+  "late_payment_mode",
+  "credit_limit_percent_dong",
+  "credit_limit_percent_bac",
+  "credit_limit_percent_vang",
+  "credit_limit_percent_kim_cuong",
+  "voice_recording_retention_days",
+  "ai_model_name",
+  "stt_provider"
+ ],
+ "fields": [
+  {
+   "fieldname": "default_company",
+   "fieldtype": "Link",
+   "label": "Company mặc định",
+   "options": "Company",
+   "idx": 1
+  },
+  {
+   "fieldname": "default_warehouse",
+   "fieldtype": "Link",
+   "label": "Kho mặc định",
+   "options": "Warehouse",
+   "idx": 2
+  },
+  {
+   "fieldname": "late_payment_interest_rate",
+   "fieldtype": "Float",
+   "label": "Lãi suất chậm thanh toán / ngày",
+   "default": "0.00022",
+   "precision": "6",
+   "idx": 3
+  },
+  {
+   "fieldname": "late_payment_mode",
+   "fieldtype": "Select",
+   "label": "Cách xử lý chậm thanh toán",
+   "options": "Interest\nPenalty",
+   "default": "Interest",
+   "idx": 4
+  },
+  {
+   "fieldname": "credit_limit_percent_dong",
+   "fieldtype": "Percent",
+   "label": "Hạn mức % hạng Đồng",
+   "default": "30",
+   "idx": 5
+  },
+  {
+   "fieldname": "credit_limit_percent_bac",
+   "fieldtype": "Percent",
+   "label": "Hạn mức % hạng Bạc",
+   "default": "50",
+   "idx": 6
+  },
+  {
+   "fieldname": "credit_limit_percent_vang",
+   "fieldtype": "Percent",
+   "label": "Hạn mức % hạng Vàng",
+   "default": "80",
+   "idx": 7
+  },
+  {
+   "fieldname": "credit_limit_percent_kim_cuong",
+   "fieldtype": "Percent",
+   "label": "Hạn mức % hạng Kim Cương",
+   "default": "100",
+   "idx": 8
+  },
+  {
+   "fieldname": "voice_recording_retention_days",
+   "fieldtype": "Int",
+   "label": "Số ngày giữ bản ghi âm",
+   "default": "30",
+   "idx": 9
+  },
+  {
+   "fieldname": "ai_model_name",
+   "fieldtype": "Data",
+   "label": "Model AI",
+   "idx": 10
+  },
+  {
+   "fieldname": "stt_provider",
+   "fieldtype": "Data",
+   "label": "Nhà cung cấp Speech-to-Text",
+   "idx": 11
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Feed Dealer Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Feed Dealer Staff",
+   "read": 1,
+   "export": 1,
+   "print": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "issingle": 1,
+ "is_submittable": 0
+}

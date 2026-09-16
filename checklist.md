@@ -1,0 +1,62 @@
+# checklist.md — trạng thái công việc P0 + P1A/P1B (cập nhật 2026-09-16)
+
+Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` chưa làm · `[?]` cần hỏi lại user
+
+## A. Yêu cầu trực tiếp của user (phiên này)
+
+- [x] Đọc `.env` mới (ERPNEXT_URL, ERPNEXT_API_KEY, ERPNEXT_API_SECRET — không có biến Docker nào)
+- [x] Xoá cài đặt Docker ERPNext khỏi **máy này**: 0 container, 0 volume, 0 build cache,
+      xoá network `app-cam_default`, xoá image `frappe/erpnext:v15.121.2` + `postgres:15` +
+      `redis:7-alpine`. File repo `docker-compose.yml`, `docker/`, `.dockerignore` đã xoá từ phiên trước.
+      Còn `alpine:3.19` (11.6MB) — có TRƯỚC khi làm, chưa đụng.
+- [x] Verify endpoint ngrok sau khi xoá: `ping` HTTP 200, `get_logged_user` → Administrator,
+      versions → frappe 16.17.2 / erpnext 16.16.0 + 3 app custom (camvlxd, custom_app, feed_dealer)
+
+## B. Change `p0-feed-dealer-foundation` (32/36 task, `openspec validate` OK)
+
+- [x] App `feed_dealer` đẩy lên Mac (83/83 file khớp) — bind-mount vào bench site `frontend`
+- [x] `bench migrate` chạy sạch **2 lần**, log trong container đều `=== EXIT 0 ===` (`/tmp/mig1.log`, `/tmp/mig2.log`)
+- [x] 19 DocType module `Feed Dealer`, `custom = 0`; ERPNext `Batch` trả lại module `Stock`
+- [x] Sửa lỗi đè tên DocType: `Batch` → `Feed Batch` (giữ mã `LOT-{YYYY}-{#####}`), sửa hooks/test/README
+- [x] Seeder masters idempotent (v16): UOM + `UOM Conversion Factor` (category Mass), item/customer
+      groups, price lists, `Feed Dealer Settings.default_company`
+- [x] Acceptance `p0_acceptance.run`: **9/9 PASS** chạy lại sau 2 migrate, fixtures idempotent
+- [x] Cập nhật artifacts openspec (proposal/design/tasks + 3 spec) theo thực tế v16 + kiến trúc thật
+- [x] README `apps/feed_dealer`: layout, generated-controller warning, v16 gotchas, Phase 1 handoff
+- [x] working.md tạo + cập nhật
+
+## B2. P1A vá + P1B Payment Allocation (đã verify trên site thật)
+
+- [x] P1A-1 — khoá idempotency = đúng bộ ba `(sales_invoice, batch, item_tax_template)`; thêm field
+      `item_tax_template` trên Batch Debt (sinh từ generator). Bằng chứng: **T6** 1 hoá đơn / 1 lứa /
+      2 nhóm thuế → 2 debt (trước khi vá: 1 debt, mất 1.000.000 tiền nợ)
+- [x] P1A-2 — nhóm còn draft thì submit nốt (không skip mãi); chỉ skip khi đã có debt docstatus=1
+- [x] P1B — `Payment Allocation` thành **DocType độc lập, submittable** (`ALLOC-{YYYY}-{#####}`,
+      link `payment_entry`) thay vì child table (on_submit chạy sau khi doc cha đã ghi DB)
+- [x] P1B — FIFO theo `due_date`; cancel PE đảo ngược + tính lại nợ; lãi chậm trả theo Settings
+- [x] Bằng chứng: P1B `6 PASS: 6 FAIL: 0` và `P1B ACCEPTANCE: ALL PASS`; P1A `6 PASS: 6 FAIL: 0`;
+      P0 `9 PASS: 9 FAIL: 0` (A7 giờ liệt kê 6 handler); `migrate` → `=== EXIT 0 ===`
+- [x] Cập nhật artifacts: data-model spec (Payment Allocation độc lập + `item_tax_template`),
+      design D12–D14, tasks mục 10, working.md/features.md/next.md
+
+## C. Chưa làm / cần làm tiếp
+
+- [ ] **Drop 12 cột rác trên `tabBatch`** (xem FAQ #1) — chờ user duyệt vì DDL không hoàn tác trên site thật
+- [ ] **Commit ban đầu** (`apps/`, `deploy/`, `openspec/`, các file md root) — repo chưa có commit nào;
+      đợi user xác nhận (thay đổi gồm DocType tài chính + phân quyền → thuộc vùng cần người duyệt)
+- [ ] P0.5: import nợ đầu kỳ + tạo `opening_journal_entry` thật
+- [ ] P1C+: 2 lỗ hổng P1B cần quyết (design.md D14): *Unreconcile Payment* của ERPNext không bị
+      đảo ngược; thanh toán đồng thời cùng khách có thể cấp phát vượt (cần row lock)
+- [ ] P1B còn thiếu so với plan: phân bổ **thủ công** (hiện chỉ FIFO), nhánh Journal Entry riêng cho
+      nợ đầu kỳ, đẩy `returned_amount` từ credit note (P1D)
+
+## D. Cần hỏi lại user
+
+- [?] Drop cột rác trên `tabBatch`? (script sẵn, chỉ chạy khi duyệt)
+- [?] Commit ban đầu có thực hiện không? (acceptance #6 của prompt P0) Kèm theo đó: có muốn gộp
+      working.md/checklist.md/features.md/next.md/faq.md/LESSONS_LEARNED.md + result/handoff vào commit
+      không, hay giữ ngoài git?
+- [?] **Warehouse "Main"**: prompt yêu cầu tạo, nhưng site thật đã có warehouse. Seeder đang CHỌN
+      default_warehouse từ warehouse có sẵn (ưu tiên tên có "cám/cam") chứ KHÔNG tạo "Warehouse Main"
+      mới. Giữ nguyên cách này, hay cần tạo warehouse riêng cho dự án?
+- [?] `alpine:3.19` trên máy này có được phép xoá luôn không?

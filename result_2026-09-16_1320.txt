@@ -1,0 +1,130 @@
+P1A FIX + P1B (PAYMENT ALLOCATION) — KẾT QUẢ CHẠY THẬT TRÊN SITE ERPNext v16 (site `frontend`)
+Thời điểm: 2026-09-16 13:20 (giờ máy này)
+Máy: app_cam (Linux) → Mac (frappe_docker-backend-1) qua cầu MCP + ngrok
+
+===============================================================================
+A. LỆNH ĐÃ CHẠY VÀ OUTPUT THẬT
+===============================================================================
+
+1) bench --site frontend migrate        → /tmp/mig_p1b.log trong container
+   ...
+   Executing `after_migrate` hooks...
+   === EXIT 0 ===
+
+2) bench --site frontend execute feed_dealer.setup.p1a_acceptance.run
+   CHECK                         RESULT  DETAIL
+   ---------------------------------------------------------------------------
+   T1  1 batch -> 1 debt         PASS    ACC-SINV-2026-00240 -> DEBT-...: +1,000,000 VND
+   T2  2 batches -> 2 debts      PASS    ACC-SINV-2026-00241 -> 2 debts: 1,000,000 + 450,000
+   T3  unbatched line skipped    PASS    ACC-SINV-2026-00242 -> 1 debt (300,000); 100,000 ở AR
+   T4  cancel unpaid SI          PASS    ACC-SINV-2026-00243 cancelled -> debt docstatus=2, total 1,000,000 -> 0
+   T5  cancel blocked when paid  PASS    cancel blocked (paid 200,000), SI giữ docstatus=1
+   T6  2 tax groups, 1 batch     PASS    ACC-SINV-2026-00245 -> 2 debts on one batch: KCT 1,000,000 + VAT 1,000,000
+   ---------------------------------------------------------------------------
+   TOTAL: 6   PASS: 6   FAIL: 0      →   P1A ACCEPTANCE: ALL PASS
+
+3) bench --site frontend execute feed_dealer.setup.p1b_acceptance.run
+   CHECK                            RESULT  DETAIL
+   ---------------------------------------------------------------------------
+   T1  partial payment              PASS    ACC-PAY-... 400,000 -> DEBT-...: paid 400,000, outstanding 600,000, 'Một phần'
+   T2  full payment                 PASS    ACC-PAY-... 1,000,000 -> DEBT-...: 'Đã trả', batch total 0
+   T3  FIFO order                   PASS    ACC-PAY-... 1,200,000 -> DEBT-...0108 1,000,000 (older, due 5d) then DEBT-...0110 200,000 (newer, due 20d)
+   T4  cancel payment restores      PASS    ACC-PAY-... cancelled -> DEBT-...0114 back to 1,000,000; re-paid by ACC-PAY-...
+   T5  overdue + fee from Settings  PASS    DEBT-...0118: 10 days overdue, fee 1,320 at the site rate and 6,000 at the probe rate 0.001
+   T6  no double allocation         PASS    ACC-PAY-... re-fired -> still 1 allocation, allocated 1,000,000 <= paid 1,000,000
+   ---------------------------------------------------------------------------
+   TOTAL: 6   PASS: 6   FAIL: 0      →   P1B ACCEPTANCE: ALL PASS
+
+4) bench --site frontend execute feed_dealer.setup.p0_acceptance.run   (chống regress)
+   A2 DocTypes 19 / A2b derived read-only / A3 nợ đầu kỳ / A4 nợ thường bị từ chối /
+   A5 farmer isolation / A6 settings persist / A7 hooks (6 handler) / A8 read-only posture / A9 masters
+   TOTAL: 9   PASS: 9   FAIL: 0      →   P0 ACCEPTANCE: ALL PASS
+
+===============================================================================
+B. P1A ĐÃ VÁ (2 bug trong prompt A)
+===============================================================================
+
+BUG P1A-1 — idempotency dùng sai khoá
+  Trước: `{sales_invoice, batch}` — trong khi group là `(batch, item_tax_template)`.
+  Hệ quả đo được (fixture T6 chạy khi CHƯA vá): 1 hoá đơn, 1 lứa, 2 dòng (KCT 1,000,000 + VAT
+  1,000,000) → **chỉ 1 Batch Debt 1,000,000**, 1,000,000 tiền nợ biến mất (bị match nhầm thành
+  "đã tồn tại").
+  Sau khi vá: khoá = `(sales_invoice, batch, item_tax_template)`; thêm field `item_tax_template`
+  (Link → Item Tax Template) trên Batch Debt, sinh từ `.agent/gen_feed_dealer.py` (generator là
+  nguồn sự thật cho JSON DocType), rồi migrate đưa field lên site.
+  Bằng chứng: T6 PASS — 2 debt, mỗi nhóm đúng số tiền net của nó.
+
+BUG P1A-2 — draft bị skip vĩnh viễn
+  Trước: chỉ cần có document cùng khoá là `continue` (kể cả docstatus=0) → nhóm đó không bao giờ
+  được cấp phát.
+  Sau: `frappe.db.exists(..., docstatus=1)` mới skip; nếu có draft cùng khoá thì cập nhật
+  amount/customer/due_date rồi `submit()` nốt draft đó.
+
+Ghi chú fixture T6 (ERPNext tự sửa template của dòng hàng): `TaxesAndTotals.validate_item_tax_template`
+ghi đè `item.item_tax_template` theo Item/Item Group của chính item đó ⇒ không thể có 2 template
+khác nhau trên cùng 1 item. Fixture dùng 2 item: item cám (nhóm `Cám chăn nuôi` → KCT) và item ở
+nhóm không có rule thuế → template giữ đúng như khai báo.
+
+===============================================================================
+C. P1B ĐÃ LÀM (prompt B)
+===============================================================================
+
+1) Payment Entry (party Customer) on_submit → FIFO theo `due_date` trên các Batch Debt
+   `docstatus=1 AND outstanding_amount > 0` của cùng customer; mỗi lát cắt tạo 1 `Payment Allocation`
+   submit ngay, ghi `previous_paid` và `outstanding_after` để có dấu vết.
+   Dùng `outstanding_amount > 0` thay vì `status in (Chưa trả/Một phần/Quá hạn)`: hai cách tương
+   đương (`_derive_status()` trả "Đã trả" đúng khi outstanding <= 0) nhưng cột số không bị cũ.
+   Tổng cấp phát không bao giờ vượt `Payment Entry.paid_amount` (phần dư để nguyên chưa cấp phát).
+2) on_cancel Payment Entry → cancel toàn bộ allocation của nó → tính lại các Batch Debt bị ảnh hưởng
+   + `Feed Batch.total_debt`; trả lời được câu "cancel PE không để nợ kẹt Đã trả" (T4).
+3) Rate lãi chậm trả: chỉ đọc `Feed Dealer Settings.late_payment_interest_rate`, fallback 0.00022
+   (không 0.0005); tính trên outstanding CÒN LẠI, và overdue tính trước status (T5).
+4) `p1b_acceptance.py`: T1 partial, T2 full, T3 FIFO, T4 cancel-khôi phục, T5 quá hạn + fee theo
+   Settings (đổi rate để chứng minh là đọc từ Settings), T6 chống cấp phát trùng + SoT.
+   Mỗi check dùng customer riêng vì FIFO quét toàn bộ nợ của customer — 2 check dùng chung customer
+   sẽ trả nợ của nhau (đúng nghiệp vụ, sai fixture).
+
+Quyết định thiết kế lớn: `Payment Allocation` đổi từ **child table** → **DocType độc lập,
+submittable** (`ALLOC-{YYYY}-{#####}`, link `payment_entry`).
+  Lý do (đọc source frappe, không đoán): `Document._submit()` set docstatus=1 rồi `save()`, và
+  `doc_events.on_submit` chạy trong `run_post_save_methods()` — tức SAU khi dòng cha đã ghi DB;
+  child row append trong hook không tự persist, và khi cancel payment thì row ở lại không có
+  vòng đời riêng. DocType độc lập cho mỗi lát cắt một docstatus → cancel payment là cancel được
+  các lát cắt đó (đối xứng với P1A: Sales Invoice → Batch Debt).
+
+Phát hiện khi làm (đã đo, không suy đoán): `debt.save()` trên Batch Debt (doc đã submit) gọi từ
+trong `on_submit` của Payment Entry **không ghi gì** — `_recalculate` tính đúng 400,000/600,000
+trong bộ nhớ nhưng dòng DB vẫn 0/1,000,000 sau khi save() trả về (`get_doc_before_save()` rỗng ⇒
+không có field nào được coi là đổi). Cách ghi đúng cho cột derived của doc đã submit:
+`frappe.db.set_value(..., update_modified=False)` — cùng cách P1A đang ghi `Feed Batch.total_debt`.
+
+===============================================================================
+D. LỖ HỔNG CÒN LẠI (ghi rõ trong design.md D14 — KHÔNG giấu)
+===============================================================================
+1. ERPNext "Unreconcile Payment": công cụ này de-reconcile hoá đơn bằng cách tạo Journal Entry MỚI,
+   Payment Entry vẫn ở docstatus=1 ⇒ không hook nào của app chạy ⇒ allocation vẫn coi khoản nợ đã
+   trả. Cần xử lý ở P1C (payment ledger) — ngoài phạm vi P1B.
+2. Submit 2 Payment Entry ĐỒNG THỜI cho cùng 1 khách: cả hai cùng đọc outstanding cũ và có thể
+   cấp phát vượt (paid > allocated). Cần row lock (`select … for update`) + test concurrency; giữ
+   nguyên theo đúng pseudocode của plan (FIFO) và ghi lại thay vì âm thầm bỏ qua.
+
+===============================================================================
+E. FILE ĐÃ ĐỔI
+===============================================================================
+  apps/feed_dealer/feed_dealer/events/sales_invoice.py      (vá P1A-1, P1A-2)
+  apps/feed_dealer/feed_dealer/events/payment_entry.py      (P1B: on_submit FIFO, on_cancel, _recalculate)
+  apps/feed_dealer/feed_dealer/hooks.py                     (cập nhật comment mô tả hook)
+  .agent/gen_feed_dealer.py                                 (nguồn: field item_tax_template, Payment Allocation độc lập, sửa indentation block overdue)
+  apps/feed_dealer/.../doctype/batch_debt/*                 (sinh lại)
+  apps/feed_dealer/.../doctype/payment_allocation/*         (sinh lại: submittable, autoname, payment_entry)
+  apps/feed_dealer/feed_dealer/setup/p1a_acceptance.py      (thêm T6 + fixture due_days/posting_days/customer)
+  apps/feed_dealer/feed_dealer/setup/p1b_acceptance.py      (mới)
+  openspec/.../specs/feed-dealer-data-model/spec.md, design.md, tasks.md
+  working.md, features.md, checklist.md, next.md
+
+===============================================================================
+F. RESULT (theo template của prompt)
+===============================================================================
+Status: DONE (trừ bước commit — chờ user duyệt theo quy ước vùng tài chính)
+Commit: chưa (repo chưa có commit nào; đây sẽ là commit đầu tiên)
+FIFO + cancel tests: PASS (P1B 6/6, P1A 6/6, P0 9/9 — không regress)

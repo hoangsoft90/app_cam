@@ -1,0 +1,125 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer",
+  "consent_date",
+  "consent_type",
+  "granted_via",
+  "consent_scope",
+  "consent_text",
+  "withdrawn",
+  "withdrawn_date"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "customer",
+   "options": "Customer",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "consent_date",
+   "fieldtype": "Datetime",
+   "label": "Thời điểm đồng ý",
+   "reqd": 1,
+   "default": "Now",
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "consent_type",
+   "fieldtype": "Select",
+   "label": "Loại đồng ý",
+   "options": "Thu thập dữ liệu\nQuản lý nợ\nThông báo SMS/Zalo\nGiữ giọng nói (tùy chọn)\nChia sẻ với nhà cung cấp hóa đơn điện tử",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "granted_via",
+   "fieldtype": "Data",
+   "label": "Đồng ý qua kênh nào",
+   "idx": 4
+  },
+  {
+   "fieldname": "consent_scope",
+   "fieldtype": "Table",
+   "label": "Phạm vi đồng ý",
+   "options": "Consent Scope Item",
+   "idx": 5
+  },
+  {
+   "fieldname": "consent_text",
+   "fieldtype": "Text",
+   "label": "Nội dung điều khoản",
+   "read_only": 1,
+   "idx": 6
+  },
+  {
+   "fieldname": "withdrawn",
+   "fieldtype": "Check",
+   "label": "Đã rút lại đồng ý",
+   "default": "0",
+   "idx": 7
+  },
+  {
+   "fieldname": "withdrawn_date",
+   "fieldtype": "Datetime",
+   "label": "Ngày rút lại",
+   "idx": 8
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Data Processing Consent",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Feed Dealer Staff",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Driver",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Farmer",
+   "read": 1,
+   "if_owner": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "format:DPC-{YYYY}-{#####}"
+}

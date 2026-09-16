@@ -1,0 +1,191 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer",
+  "score",
+  "tier",
+  "limit_by_score",
+  "limit_by_collateral",
+  "limit_by_guarantee",
+  "seasonal_limit_cap",
+  "credit_limit",
+  "manual_override",
+  "manual_limit",
+  "override_reason",
+  "override_by",
+  "override_date",
+  "on_time_payments",
+  "late_payments",
+  "total_batches_completed",
+  "last_calculated"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "customer",
+   "options": "Customer",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "score",
+   "fieldtype": "Int",
+   "label": "Điểm tín dụng (0-100)",
+   "default": "50",
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "tier",
+   "fieldtype": "Select",
+   "label": "tier",
+   "options": "Đồng\nBạc\nVàng\nKim Cương",
+   "default": "Đồng",
+   "in_list_view": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "limit_by_score",
+   "fieldtype": "Currency",
+   "label": "Hạn mức theo điểm",
+   "idx": 4
+  },
+  {
+   "fieldname": "limit_by_collateral",
+   "fieldtype": "Currency",
+   "label": "Hạn mức theo tài sản thế chấp (×0.7)",
+   "idx": 5
+  },
+  {
+   "fieldname": "limit_by_guarantee",
+   "fieldtype": "Currency",
+   "label": "Hạn mức theo bảo lãnh",
+   "idx": 6
+  },
+  {
+   "fieldname": "seasonal_limit_cap",
+   "fieldtype": "Currency",
+   "label": "Giới hạn theo mùa vụ",
+   "idx": 7
+  },
+  {
+   "fieldname": "credit_limit",
+   "fieldtype": "Currency",
+   "label": "Hạn mức nợ cuối cùng",
+   "in_list_view": 1,
+   "idx": 8
+  },
+  {
+   "fieldname": "manual_override",
+   "fieldtype": "Check",
+   "label": "Ghi đè thủ công",
+   "default": "0",
+   "idx": 9
+  },
+  {
+   "fieldname": "manual_limit",
+   "fieldtype": "Currency",
+   "label": "Hạn mức ghi đè",
+   "idx": 10
+  },
+  {
+   "fieldname": "override_reason",
+   "fieldtype": "Small Text",
+   "label": "Lý do ghi đè",
+   "idx": 11
+  },
+  {
+   "fieldname": "override_by",
+   "fieldtype": "Link",
+   "label": "Người ghi đè",
+   "options": "User",
+   "read_only": 1,
+   "idx": 12
+  },
+  {
+   "fieldname": "override_date",
+   "fieldtype": "Datetime",
+   "label": "override_date",
+   "read_only": 1,
+   "idx": 13
+  },
+  {
+   "fieldname": "on_time_payments",
+   "fieldtype": "Int",
+   "label": "Số lần trả đúng hạn",
+   "read_only": 1,
+   "default": "0",
+   "idx": 14
+  },
+  {
+   "fieldname": "late_payments",
+   "fieldtype": "Int",
+   "label": "Số lần trả trễ",
+   "read_only": 1,
+   "default": "0",
+   "idx": 15
+  },
+  {
+   "fieldname": "total_batches_completed",
+   "fieldtype": "Int",
+   "label": "Số lứa đã hoàn thành",
+   "read_only": 1,
+   "default": "0",
+   "idx": 16
+  },
+  {
+   "fieldname": "last_calculated",
+   "fieldtype": "Datetime",
+   "label": "last_calculated",
+   "read_only": 1,
+   "idx": 17
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Credit Score",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Feed Dealer Staff",
+   "read": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Farmer",
+   "read": 1,
+   "if_owner": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "field:customer",
+ "track_changes": 1
+}

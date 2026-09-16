@@ -1,0 +1,101 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "batch_debt",
+  "batch",
+  "allocated_amount",
+  "paid_amount",
+  "outstanding_amount",
+  "due_date",
+  "overdue_days"
+ ],
+ "fields": [
+  {
+   "fieldname": "batch_debt",
+   "fieldtype": "Link",
+   "label": "Khoản nợ lứa",
+   "options": "Batch Debt",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "batch",
+   "fieldtype": "Link",
+   "label": "batch",
+   "options": "Feed Batch",
+   "fetch_from": "batch_debt.batch",
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "label": "allocated_amount",
+   "fetch_from": "batch_debt.allocated_amount",
+   "idx": 3
+  },
+  {
+   "fieldname": "paid_amount",
+   "fieldtype": "Currency",
+   "label": "paid_amount",
+   "fetch_from": "batch_debt.paid_amount",
+   "idx": 4
+  },
+  {
+   "fieldname": "outstanding_amount",
+   "fieldtype": "Currency",
+   "label": "outstanding_amount",
+   "fetch_from": "batch_debt.outstanding_amount",
+   "in_list_view": 1,
+   "idx": 5
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "label": "due_date",
+   "fetch_from": "batch_debt.due_date",
+   "in_list_view": 1,
+   "idx": 6
+  },
+  {
+   "fieldname": "overdue_days",
+   "fieldtype": "Int",
+   "label": "overdue_days",
+   "fetch_from": "batch_debt.overdue_days",
+   "idx": 7
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Debt Confirmation Item",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "istable": 1
+}

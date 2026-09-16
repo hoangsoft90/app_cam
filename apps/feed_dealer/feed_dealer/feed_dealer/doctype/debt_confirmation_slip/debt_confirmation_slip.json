@@ -1,0 +1,134 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer",
+  "confirmation_date",
+  "period_from",
+  "period_to",
+  "debt_details",
+  "total_confirmed_debt",
+  "signed_photo",
+  "qr_code",
+  "confirmed_by_customer",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "customer",
+   "options": "Customer",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "confirmation_date",
+   "fieldtype": "Date",
+   "label": "Ngày xác nhận",
+   "reqd": 1,
+   "default": "Today",
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "period_from",
+   "fieldtype": "Date",
+   "label": "Kỳ từ ngày",
+   "reqd": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "period_to",
+   "fieldtype": "Date",
+   "label": "Đến ngày",
+   "reqd": 1,
+   "idx": 4
+  },
+  {
+   "fieldname": "debt_details",
+   "fieldtype": "Table",
+   "label": "Chi tiết nợ",
+   "options": "Debt Confirmation Item",
+   "idx": 5
+  },
+  {
+   "fieldname": "total_confirmed_debt",
+   "fieldtype": "Currency",
+   "label": "Tổng nợ xác nhận",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 6
+  },
+  {
+   "fieldname": "signed_photo",
+   "fieldtype": "Attach Image",
+   "label": "Ảnh phiếu có chữ ký",
+   "idx": 7
+  },
+  {
+   "fieldname": "qr_code",
+   "fieldtype": "Data",
+   "label": "Mã QR đối chiếu",
+   "idx": 8
+  },
+  {
+   "fieldname": "confirmed_by_customer",
+   "fieldtype": "Check",
+   "label": "Khách hàng đã xác nhận",
+   "default": "0",
+   "idx": 9
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Ghi chú",
+   "idx": 10
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Debt Confirmation Slip",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Feed Dealer Staff",
+   "read": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Farmer",
+   "read": 1,
+   "if_owner": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "format:DCS-{YYYY}-{#####}",
+ "is_submittable": 1,
+ "track_changes": 1
+}

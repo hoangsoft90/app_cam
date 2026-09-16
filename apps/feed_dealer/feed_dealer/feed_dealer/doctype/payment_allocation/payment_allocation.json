@@ -1,0 +1,123 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "payment_entry",
+  "batch_debt",
+  "batch",
+  "due_date",
+  "allocated_amount",
+  "previous_paid",
+  "paid_amount",
+  "outstanding_after"
+ ],
+ "fields": [
+  {
+   "fieldname": "payment_entry",
+   "fieldtype": "Link",
+   "label": "Phiếu thanh toán",
+   "options": "Payment Entry",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "batch_debt",
+   "fieldtype": "Link",
+   "label": "Khoản nợ lứa",
+   "options": "Batch Debt",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "batch",
+   "fieldtype": "Link",
+   "label": "Lứa nuôi",
+   "options": "Feed Batch",
+   "fetch_from": "batch_debt.batch",
+   "in_list_view": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "label": "due_date",
+   "fetch_from": "batch_debt.due_date",
+   "in_list_view": 1,
+   "idx": 4
+  },
+  {
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "label": "Tổng nợ",
+   "fetch_from": "batch_debt.allocated_amount",
+   "idx": 5
+  },
+  {
+   "fieldname": "previous_paid",
+   "fieldtype": "Currency",
+   "label": "Đã trả trước",
+   "idx": 6
+  },
+  {
+   "fieldname": "paid_amount",
+   "fieldtype": "Currency",
+   "label": "Trả lần này",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 7
+  },
+  {
+   "fieldname": "outstanding_after",
+   "fieldtype": "Currency",
+   "label": "Còn lại sau",
+   "read_only": 1,
+   "idx": 8
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Payment Allocation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Feed Dealer Staff",
+   "read": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Farmer",
+   "read": 1,
+   "if_owner": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "format:ALLOC-{YYYY}-{#####}",
+ "is_submittable": 1,
+ "track_changes": 1
+}

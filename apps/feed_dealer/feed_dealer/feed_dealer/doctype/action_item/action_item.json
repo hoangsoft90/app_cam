@@ -1,0 +1,180 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "description",
+  "customer",
+  "action_type",
+  "priority",
+  "status",
+  "message",
+  "expires_at",
+  "campaign_id",
+  "source_workflow",
+  "ai_confidence",
+  "ai_reasoning",
+  "approved_by",
+  "approved_at",
+  "execution_result"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "title",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "label": "Mô tả chi tiết",
+   "idx": 2
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Khách hàng liên quan",
+   "options": "Customer",
+   "in_list_view": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "action_type",
+   "fieldtype": "Select",
+   "label": "Loại hành động",
+   "options": "Gửi thông báo\nGợi ý gọi điện\nKhóa khách hàng\nMở khóa khách hàng\nNâng hạng tín dụng\nGiảm hạng tín dụng\nĐề xuất thưởng\nCảnh báo dịch bệnh\nKhác",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 4
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "priority",
+   "options": "Cao\nTrung bình\nThấp",
+   "default": "Trung bình",
+   "in_list_view": 1,
+   "idx": 5
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "status",
+   "options": "Open\nApproved\nRejected\nExpired",
+   "default": "Open",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "idx": 6
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "label": "Nội dung gợi ý",
+   "idx": 7
+  },
+  {
+   "fieldname": "expires_at",
+   "fieldtype": "Datetime",
+   "label": "Hết hạn lúc",
+   "idx": 8
+  },
+  {
+   "fieldname": "campaign_id",
+   "fieldtype": "Data",
+   "label": "Mã chiến dịch",
+   "idx": 9
+  },
+  {
+   "fieldname": "source_workflow",
+   "fieldtype": "Data",
+   "label": "Workflow nguồn",
+   "idx": 10
+  },
+  {
+   "fieldname": "ai_confidence",
+   "fieldtype": "Float",
+   "label": "Độ tin cậy của AI (0-1)",
+   "idx": 11
+  },
+  {
+   "fieldname": "ai_reasoning",
+   "fieldtype": "Text",
+   "label": "Lý do AI đề xuất",
+   "idx": 12
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "approved_by",
+   "options": "User",
+   "read_only": 1,
+   "idx": 13
+  },
+  {
+   "fieldname": "approved_at",
+   "fieldtype": "Datetime",
+   "label": "approved_at",
+   "read_only": 1,
+   "idx": 14
+  },
+  {
+   "fieldname": "execution_result",
+   "fieldtype": "Small Text",
+   "label": "Kết quả thực thi",
+   "read_only": 1,
+   "idx": 15
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Action Item",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Feed Dealer Staff",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Driver",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Farmer",
+   "read": 1,
+   "if_owner": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "format:ACT-{YYYY}-{#####}"
+}

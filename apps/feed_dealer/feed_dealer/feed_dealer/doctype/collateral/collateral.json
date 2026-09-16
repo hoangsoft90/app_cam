@@ -1,0 +1,122 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer",
+  "asset_type",
+  "description",
+  "estimated_value",
+  "effective_value",
+  "documents_attached",
+  "status",
+  "verified_by"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "customer",
+   "options": "Customer",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "asset_type",
+   "fieldtype": "Select",
+   "label": "Loại tài sản",
+   "options": "Đất đai\nNhà cửa\nXe cộ\nVật nuôi\nGiấy tờ có giá\nKhác",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Mô tả tài sản",
+   "reqd": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "estimated_value",
+   "fieldtype": "Currency",
+   "label": "Giá trị ước tính",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 4
+  },
+  {
+   "fieldname": "effective_value",
+   "fieldtype": "Currency",
+   "label": "Giá trị hiệu dụng (×0.7)",
+   "read_only": 1,
+   "idx": 5
+  },
+  {
+   "fieldname": "documents_attached",
+   "fieldtype": "Attach",
+   "label": "Giấy tờ chứng minh",
+   "idx": 6
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "status",
+   "options": "Đang thế chấp\nĐã giải chấp",
+   "default": "Đang thế chấp",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "idx": 7
+  },
+  {
+   "fieldname": "verified_by",
+   "fieldtype": "Link",
+   "label": "Người thẩm định",
+   "options": "User",
+   "idx": 8
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Collateral",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Feed Dealer Staff",
+   "read": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Farmer",
+   "read": 1,
+   "if_owner": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "format:COLL-{YYYY}-{#####}",
+ "track_changes": 1
+}

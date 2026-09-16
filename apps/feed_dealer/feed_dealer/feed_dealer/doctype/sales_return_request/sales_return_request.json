@@ -1,0 +1,149 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer",
+  "sales_invoice",
+  "reason",
+  "items",
+  "evidence_photos",
+  "approval_status",
+  "approved_by",
+  "approved_at",
+  "credit_note_reference",
+  "batch_debt_adjusted"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "customer",
+   "options": "Customer",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Hóa đơn gốc",
+   "options": "Sales Invoice",
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Select",
+   "label": "Lý do trả hàng",
+   "options": "Quality Issue\nWrong Item\nOutbreak\nCustomer Bankrupt\nOther",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Hàng trả lại",
+   "options": "Sales Return Item",
+   "idx": 4
+  },
+  {
+   "fieldname": "evidence_photos",
+   "fieldtype": "Attach",
+   "label": "Ảnh bằng chứng",
+   "idx": 5
+  },
+  {
+   "fieldname": "approval_status",
+   "fieldtype": "Select",
+   "label": "approval_status",
+   "options": "Draft\nApproved\nRejected",
+   "default": "Draft",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "idx": 6
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "approved_by",
+   "options": "User",
+   "read_only": 1,
+   "idx": 7
+  },
+  {
+   "fieldname": "approved_at",
+   "fieldtype": "Datetime",
+   "label": "approved_at",
+   "read_only": 1,
+   "idx": 8
+  },
+  {
+   "fieldname": "credit_note_reference",
+   "fieldtype": "Link",
+   "label": "Hóa đơn điều chỉnh (credit note)",
+   "options": "Sales Invoice",
+   "read_only": 1,
+   "idx": 9
+  },
+  {
+   "fieldname": "batch_debt_adjusted",
+   "fieldtype": "Check",
+   "label": "Đã tính lại nợ theo lứa",
+   "read_only": 1,
+   "default": "0",
+   "idx": 10
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Sales Return Request",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Feed Dealer Staff",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Driver",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Farmer",
+   "read": 1,
+   "if_owner": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "format:SRR-{YYYY}-{#####}",
+ "is_submittable": 1,
+ "track_changes": 1
+}

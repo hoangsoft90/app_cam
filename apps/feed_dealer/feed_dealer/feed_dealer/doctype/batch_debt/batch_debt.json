@@ -1,0 +1,184 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "batch",
+  "customer",
+  "is_opening_balance",
+  "opening_journal_entry",
+  "sales_invoice",
+  "item_tax_template",
+  "allocated_amount",
+  "returned_amount",
+  "due_date",
+  "payment_terms",
+  "paid_amount",
+  "outstanding_amount",
+  "status",
+  "overdue_days",
+  "late_payment_fee"
+ ],
+ "fields": [
+  {
+   "fieldname": "batch",
+   "fieldtype": "Link",
+   "label": "Lứa nuôi",
+   "options": "Feed Batch",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "customer",
+   "options": "Customer",
+   "reqd": 1,
+   "in_list_view": 1,
+   "fetch_from": "batch.customer",
+   "idx": 2
+  },
+  {
+   "fieldname": "is_opening_balance",
+   "fieldtype": "Check",
+   "label": "Nợ đầu kỳ",
+   "default": "0",
+   "idx": 3
+  },
+  {
+   "fieldname": "opening_journal_entry",
+   "fieldtype": "Link",
+   "label": "Bút toán nợ đầu kỳ",
+   "options": "Journal Entry",
+   "depends_on": "eval:doc.is_opening_balance",
+   "idx": 4
+  },
+  {
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Hóa đơn bán hàng",
+   "options": "Sales Invoice",
+   "mandatory_depends_on": "eval:!doc.is_opening_balance",
+   "idx": 5
+  },
+  {
+   "fieldname": "item_tax_template",
+   "fieldtype": "Link",
+   "label": "Mẫu thuế dòng hàng",
+   "options": "Item Tax Template",
+   "idx": 6
+  },
+  {
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "label": "Số tiền phân bổ cho lứa này",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 7
+  },
+  {
+   "fieldname": "returned_amount",
+   "fieldtype": "Currency",
+   "label": "Đã trả lại (từ credit note)",
+   "read_only": 1,
+   "idx": 8
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "label": "Hạn thanh toán",
+   "reqd": 1,
+   "fetch_from": "sales_invoice.due_date",
+   "idx": 9
+  },
+  {
+   "fieldname": "payment_terms",
+   "fieldtype": "Data",
+   "label": "Thỏa thuận thanh toán",
+   "idx": 10
+  },
+  {
+   "fieldname": "paid_amount",
+   "fieldtype": "Currency",
+   "label": "Đã trả (từ phân bổ)",
+   "read_only": 1,
+   "idx": 11
+  },
+  {
+   "fieldname": "outstanding_amount",
+   "fieldtype": "Currency",
+   "label": "Số tiền còn nợ",
+   "read_only": 1,
+   "in_list_view": 1,
+   "idx": 12
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "status",
+   "options": "Chưa trả\nMột phần\nĐã trả\nQuá hạn",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "idx": 13
+  },
+  {
+   "fieldname": "overdue_days",
+   "fieldtype": "Int",
+   "label": "Số ngày quá hạn",
+   "read_only": 1,
+   "idx": 14
+  },
+  {
+   "fieldname": "late_payment_fee",
+   "fieldtype": "Currency",
+   "label": "Phí chậm thanh toán",
+   "read_only": 1,
+   "idx": 15
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Batch Debt",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Feed Dealer Staff",
+   "read": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Farmer",
+   "read": 1,
+   "if_owner": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "format:DEBT-{YYYY}-{#####}",
+ "is_submittable": 1,
+ "track_changes": 1
+}

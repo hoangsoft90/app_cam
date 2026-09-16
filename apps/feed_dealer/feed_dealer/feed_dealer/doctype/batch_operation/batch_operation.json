@@ -1,0 +1,112 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "operation_type",
+  "operation_date",
+  "reason",
+  "source_batches",
+  "target_batches",
+  "debt_allocation_method"
+ ],
+ "fields": [
+  {
+   "fieldname": "operation_type",
+   "fieldtype": "Select",
+   "label": "Loại phép",
+   "options": "Tách lứa\nGộp lứa\nPhân bổ",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "operation_date",
+   "fieldtype": "Date",
+   "label": "operation_date",
+   "reqd": 1,
+   "default": "Today",
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Lý do (dịch bệnh, bán một phần, ghép chuồng...)",
+   "idx": 3
+  },
+  {
+   "fieldname": "source_batches",
+   "fieldtype": "Table",
+   "label": "Lứa nguồn",
+   "options": "Batch Operation Source",
+   "idx": 4
+  },
+  {
+   "fieldname": "target_batches",
+   "fieldtype": "Table",
+   "label": "Lứa đích",
+   "options": "Batch Operation Target",
+   "idx": 5
+  },
+  {
+   "fieldname": "debt_allocation_method",
+   "fieldtype": "Select",
+   "label": "Cách phân bổ nợ",
+   "options": "Theo số con\nTheo trọng lượng\nThủ công",
+   "default": "Theo số con",
+   "reqd": 1,
+   "idx": 6
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Batch Operation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Feed Dealer Staff",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Driver",
+   "read": 1,
+   "print": 1
+  },
+  {
+   "role": "Feed Farmer",
+   "read": 1,
+   "if_owner": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "format:BOP-{YYYY}-{#####}",
+ "is_submittable": 1,
+ "track_changes": 1
+}
