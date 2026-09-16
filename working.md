@@ -7,7 +7,8 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 - [2026-09-16] Change `p0-feed-dealer-foundation` — **P1C xong, chỉ còn chờ duyệt commit** (task
   11.9), `openspec validate` → "is valid". App `feed_dealer` trên site ERPNext **v16** của user
   (Mac, `frappe_docker`, site `frontend`), 19 DocType module `Feed Dealer` (0 custom).
-  Đã commit: `eb75222` (P0+P1A+P1B), `0355d6b` (vá refund/NULL), `0e89ce7` (bỏ track `__pycache__`).
+  Đã commit: `7c62129` (P1C), `eb75222` (P0+P1A+P1B), `0355d6b` (vá refund/NULL), `0e89ce7` (bỏ
+  track `__pycache__`).
   Bằng chứng mới nhất (site thật, sau `clear-cache`): **P0 `9/9`, P1A `8/8`, P1B `9/9`, P1C `10/10`
   — tất cả `ALL PASS`**. P1C gồm: gate hạn mức dùng chung (`credit_limit.py`, công thức v2.2
   MUST-3) + hook Sales Order (`validate` đếm cả draft, `before_submit` row lock + re-check),
@@ -17,8 +18,8 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Chờ user quyết
 
-- [2026-09-16] **Commit P1C** (task 11.9). P1C là hạn mức tiền + luật phân quyền (vùng loại trừ
-  an toàn) nên tôi dừng chờ xác nhận, dù prompt P1C có ghi "mỗi sub-phase PASS → commit".
+- [x] [2026-09-16] **Commit P1C — ĐÃ DUYỆT và đã commit `7c62129`** (19 file, +1857/−64): code +
+  4 bộ test + openspec/docs. Task 11.9 đóng.
 - [2026-09-16] ~~2 lỗ hỏng P1B~~ **đã đóng ở P1C** (`design.md` D16): (1) *Unreconcile Payment*
   giờ có hook `feed_dealer.events.unreconcile_payment.on_submit` đảo allocation (P1B T8); (2) FIFO
   đã lock row `Batch Debt` bằng `get_values(..., for_update=True)` (P1B T9, chứng minh bằng

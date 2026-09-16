@@ -1,9 +1,9 @@
 ================================================================================
 RESULT — P1C Credit Limit (+ hardening P1B) — 2026-09-16 14:23 (local) / 21:23 site
 ================================================================================
-Status : DONE (code + tests verified on the real site) — COMMIT PENDING user approval
-Commit : chưa có cho P1C. Baseline đã commit: eb75222 (P0+P1A+P1B), 0355d6b (vá refund/NULL),
-         0e89ce7 (bỏ track __pycache__).
+Status : DONE — APPROVED & COMMITTED as `7c62129` (2026-09-16)
+Commit : `7c62129` (P1C, 19 files +1857/−64). Baseline trước đó: eb75222 (P0+P1A+P1B),
+         0355d6b (vá refund/NULL), 0e89ce7 (bỏ track __pycache__).
 Site   : ERPNext v16, Mac frappe_docker, site `frontend` (không hard-code company/tỷ lệ)
 
 --------------------------------------------------------------------------------
@@ -109,7 +109,7 @@ D6. Repo `app_cam` **đã là git repo** (prompt ghi "chưa phải git repo" →
 --------------------------------------------------------------------------------
 E. CÒN LẠI / KHÔNG GIẤU
 --------------------------------------------------------------------------------
-E1. Commit P1C — chờ user duyệt (hạn mức tiền + luật phân quyền = vùng loại trừ an toàn).
+E1. ~~Commit P1C~~ — ĐÃ DUYỆT, commit `7c62129`.
 E2. Cancel một `Unreconcile Payment` không re-link gì trong v16 (DocType này không có on_cancel) ⇒ hook
     cũng không tạo lại allocation; đã ghi ở design.md D16.
 E3. Score dùng "trả đúng hạn/trả trễ" theo trạng thái hiện tại (debt đã tất toán thì overdue_days=0) →

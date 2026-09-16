@@ -17,13 +17,13 @@
 
 ## Sắp tới — ngắn hạn (chờ quyết định của user)
 
-1. **[?] Commit P1C** — hạn mức tiền + luật phân quyền (vùng loại trừ an toàn) → chờ user xác nhận
-2. **[?] Drop 12 cột rác trên `tabBatch`** — script đã chuẩn bị, DDL không hoàn tác → cần duyệt
-3. **[?] Khác biệt spec P1C** (xem checklist.md mục D): prompt P1C muốn "3 draft SO 20tr → submit
-   thứ 3 bị chặn", còn `plan_final_v2.2_mustfix.md` MUST-3 (mới hơn) chặn **ngay lúc tạo** đơn nháp
-   thứ 3. Tôi làm theo v2.2 và test cả hai — cần user xác nhận đây là hành vi muốn có.
+1. **[?] Drop 12 cột rác trên `tabBatch`** — script đã chuẩn bị, DDL không hoàn tác → cần duyệt
+2. **[x] Commit P1C** — đã duyệt, commit `7c62129`
+3. **[?] Hành vi hạn mức đã chốt** (xem checklist.md mục D): chặn đơn nháp vượt hạn mức **ngay lúc
+   tạo** (theo v2.2 MUST-3) — nếu bạn muốn hành vi theo prompt cũ (chỉ chặn lúc submit) thì nói,
+   tôi đổi và giữ nguyên test hai phía
 4. **P0.5** (import nợ đầu kỳ) hoặc **P1D** (trả hàng → `returned_amount`) là phase kế tiếp hợp lý;
-   P1D sẽ chạm `calculate_derived_fields` nên làm sau khi P1C đã lock hành vi ổn định.
+   P1D sẽ chạm `calculate_derived_fields` nên làm khi P1C đã ổn định như hiện tại
 5. (Tuỳ chọn) Dọn fixture acceptance: `bench execute feed_dealer.setup.p1c_acceptance.cleanup`
    (mọi bộ `run()` đều tự dọn trước khi chạy)
 

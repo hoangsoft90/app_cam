@@ -112,10 +112,11 @@ reason recorded so the decision is not silently lost.
   *Evidence:* acceptance re-run after the two migrates → `TOTAL: 9   PASS: 9   FAIL: 0`;
   `grep` for `ngrok|api_secret|api_key|password|passphrase` over `apps/` and `deploy/` → no hits;
   `.env` and `.agent/` are git-ignored (verified with `git check-ignore -v`).
-- [ ] 8.5 Commit the app + change artifacts. **Pending user approval** — the change defines the
-  financial DocTypes and the permission model, which sit in the safety-exclusion zone, so the
-  commit waits for the user's explicit sign-off (and this repo has no commits yet; this would be
-  the initial one).
+- [x] 8.5 Commit the app + change artifacts. The change defines the financial DocTypes and the
+  permission model (safety-exclusion zone), so every commit waited for the user's explicit
+  sign-off — and got it, commit by commit.
+  *Evidence:* `eb75222` (initial: P0 + P1A + P1B), `0355d6b` (review fixes), `0e89ce7` (untrack
+  bytecode), `7c62129` (P1C).
 
 ## 9. Change hygiene
 
@@ -214,5 +215,7 @@ keeps describing what actually shipped.
   (now `_require_credit_read`, covered by `P1C T10`); the full suites re-run green:
   `P0 9/9`, `P1A 8/8`, `P1B 9/9`, `P1C 10/10`. OpenCodeReview is not installed in this session, so
   the diff was reviewed by hand against injection/null/permission/money patterns.
-- [ ] 11.9 Commit P1C. **Pending user approval** — the credit limit is a hard business limit plus an
-  authorisation rule, i.e. the same safety exclusion as 8.5/10.11.
+- [x] 11.9 Commit P1C.
+  *Evidence:* `7c62129` — 19 files, +1857/−64 (code + tests + artifacts). Approved by the user after
+  the RESULT report; the credit limit is a hard business limit plus an authorisation rule, so the
+  commit only landed after explicit sign-off.
