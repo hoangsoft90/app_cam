@@ -3,7 +3,13 @@ RESULT — P1G (Reports + SoT Integrity + Phase 1 Exit Gate)
 Date:   2026-09-17 07:51 (local)
 Site:   ERPNext v16, site `frontend`, app feed_dealer (Mac)
 Status: DONE (P1E still BLOCKED, unchanged — not part of this pass)
-Commit: <filled in from `git log -1 --format='%H %s'` after the commit; see working.md>
+Commit: 770be4e2f8f9b02d771c3d398c384717a416b027 feat(feed_dealer): P1G AR-vs-Batch-Debt integrity, 7 Desk reports, Phase 1 exit gate
+        (output thật của `git log -1 --format='%H %s'`, không ghi từ trí nhớ)
+
+Bằng chứng trên REVISION CUỐI (push lại + clear-cache lần chót trước khi commit):
+  /tmp/final_p1g.log   TOTAL: 9  PASS: 9  FAIL: 0  P1G INTEGRITY: ALL PASS
+  /tmp/final_rep.log   TOTAL: 4  PASS: 4  FAIL: 0  P1G REPORTS: ALL PASS
+  /tmp/final_p1d.log   TOTAL: 8  PASS: 8  FAIL: 0  P1D ACCEPTANCE: ALL PASS
 
 Bằng chứng chạy trên site thật (mỗi lần đều `clear-cache` + xoá __pycache__ trước khi chạy;
 log nằm TRONG container, đọc lại bằng .agent/read_container_log.py):

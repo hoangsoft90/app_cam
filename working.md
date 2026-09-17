@@ -5,8 +5,17 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 ## Đang làm
 
 - [2026-09-17] **P1G — integrity AR vs Batch Debt + 7 báo cáo + Exit Gate Phase 1. ĐÃ TEST trên site
-  thật (clear-cache trước mỗi lần chạy), ĐÃ COMMIT** (hash dán nguyên văn từ `git log -1
-  --format='%H %s'` — xem cuối mục này).
+  thật (clear-cache trước mỗi lần chạy), ĐÃ COMMIT** — hash dán nguyên văn từ
+  `git log -1 --format='%H %s'`:
+  ```
+  770be4e2f8f9b02d771c3d398c384717a416b027 feat(feed_dealer): P1G AR-vs-Batch-Debt integrity, 7 Desk reports, Phase 1 exit gate
+  ```
+  Bằng chứng trên **revision cuối** (sau khi push + clear-cache lần chót):
+  ```
+  /tmp/final_p1g.log   TOTAL: 9  PASS: 9  FAIL: 0   P1G INTEGRITY: ALL PASS
+  /tmp/final_rep.log   TOTAL: 4  PASS: 4  FAIL: 0   P1G REPORTS: ALL PASS
+  /tmp/final_p1d.log   TOTAL: 8  PASS: 8  FAIL: 0   P1D ACCEPTANCE: ALL PASS
+  ```
 
   **(1) Dataset + đẳng thức AR vs Batch Debt** (`feed_dealer/setup/p1g_integrity.py`): sinh dataset
   ngẫu nhiên seed cố định **60 giao dịch thật** — 70 hoá đơn (10 credit note), 13 SO→SI, 45 phiếu
