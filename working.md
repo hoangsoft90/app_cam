@@ -5,7 +5,11 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 ## Đang làm
 
 - [2026-09-17] **Review P1F — đã viết xong code + ĐÃ TEST trên site thật (clear-cache trước mỗi lần
-  chạy).** 4 finding đã sửa, tất cả ở nguồn chân lý:
+  chạy) — ĐÃ COMMIT** (dán nguyên văn từ `git log -1 --format='%H %s'`):
+  ```
+  545b2b803c616695a95036002d7ccfe3bec73f97 fix(feed_dealer): P1F review - refusal gate moved pre-write, offset identity guard
+  ```
+  11 file, +353/−21. 4 finding đã sửa, tất cả ở nguồn chân lý:
   • **guard HIỂU SAI HOOK (nặng nhất):** `on_submit` chạy SAU khi ghi DB ⇒ guard đặt ở đó **không
     chặn được gì** — JE sai chủ thể vẫn nằm trong DB docstatus=1 (đã đo bằng probe, không đoán).
     Chuyển sang `validate` (chạy cho cả draft save lẫn submit, vẫn trước write) + đăng ký hook;
@@ -85,11 +89,11 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Chờ user quyết
 
-- [2026-09-17] **Commit đợt review P1F** (6 file code đã verify: `journal_entry.py`,
-  `livestock_offset.py`, `batch_operation.py`, `hooks.py`, `install_patch_formats`
-  (`patches/v1_0/install_print_formats.py`), `p1f_acceptance.py`, + `design.md` D22 / `tasks.md`
-  13.8 / `LESSONS_LEARNED.md` / skill). Đây là vùng nhạy cảm (tiền/phân quyền) nên **dừng chờ
-  bạn duyệt**, không tự commit.
+- [x] [2026-09-17] **Commit đợt review P1F — ĐÃ DUYỆT và đã commit
+  `545b2b803c616695a95036002d7ccfe3bec73f97`** (11 file, +353/−21): `journal_entry.py`,
+  `livestock_offset.py`, `batch_operation.py`, `hooks.py`, `patches/v1_0/install_print_formats.py`,
+  `p1f_acceptance.py` + `design.md` D22 / `tasks.md` 13.8 / `LESSONS_LEARNED.md` / `working.md` /
+  `result_2026-09-17_0249_review_P1F.txt`.
 - [x] [2026-09-16] **Commit P1C — ĐÃ DUYỆT và đã commit `7c62129`** (19 file, +1857/−64): code +
   4 bộ test + openspec/docs. Task 11.9 đóng.
 - [2026-09-16] ~~2 lỗ hỏng P1B~~ **đã đóng ở P1C** (`design.md` D16): (1) *Unreconcile Payment*

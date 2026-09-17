@@ -1,6 +1,9 @@
 RESULT — Review đợt P1F (2026-09-17 02:49)
 ==========================================================================
-Status: DONE (đã test trên site thật) — CHƯA COMMIT, chờ user duyệt
+Status: DONE (đã test trên site thật) — ĐÃ COMMIT
+Commit: 545b2b803c616695a95036002d7ccfe3bec73f97 fix(feed_dealer): P1F review - refusal gate
+        moved pre-write, offset identity guard   (11 file, +353/−21)
+        -- hash dán nguyên văn từ `git log -1 --format='%H %s'`
 Site:   ERPNext v16, site `frontend` (Mac frappe_docker, push content-verified 99 file)
 
 CÂU HỎI CỦA USER: "Viết xong đã test code chưa? Đừng quên clear cache trước khi test."
@@ -80,6 +83,6 @@ DIFF (chưa commit)
 
 NEXT
 --------------------------------------------------------------------------
-  - Chờ user duyệt commit (vùng nhạy cảm: tiền + phân quyền).
+  - Đã commit `545b2b8` (user duyệt).
   - Sau commit: P1G (báo cáo + script đối chiếu AR vs Batch Debt) — đây cũng là lúc verify bằng
     số liệu thật cho VIỆC 1; nợ kỹ thuật P0.5 vẫn bắt buộc trước go-live.
