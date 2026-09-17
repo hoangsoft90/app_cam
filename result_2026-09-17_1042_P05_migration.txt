@@ -62,4 +62,6 @@ Kèm dọn rác: 4 JE mồ côi tích tụ từ các lần T5 fail trước (pre
 - P1E vẫn BLOCKED (thiếu sandbox VNPT/Viettel/MISA) — không đổi.
 - Cleanup dataset mẫu: `bench --site frontend execute feed_dealer.setup.p05_acceptance.cleanup`
   (chỉ dành cho data PREFIXED/mẫu — nợ thật không bao giờ tự dọn).
-- Commit: xem working.md (hash dán từ `git log -1`, không ghi từ trí nhớ).
+- Commits (output thật `git log -1 --format='%H %s'`, không ghi từ trí nhớ):
+  - `e26a836bc9a7c9c7956c7a32a043e8519d806bd5 docs: P1G review round - exact-count dataset checks, journal/handoff updates`
+  - `5f05dbe38d18de4bba597a66af926d1a1682aa43 feat(feed_dealer): P0.5 opening-balance migration via JE + Batch Debt (no invoices)`

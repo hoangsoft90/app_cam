@@ -286,5 +286,6 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   (import xong mới tính scope); T5 đo bằng JE DOCUMENT count (link-count đếm
   nhầm adopt đúng thành tạo mới); mutation-check needle đảo → T5 đỏ 11→12 →
   khôi phục → xanh 6/6. Regression: P0 9/9, P1A 8/8, P1B 10/10, P1C 10/10,
-  P1D 8/8, P1F 9/9.
+  P1D 8/8, P1F 9/9. Commits: e26a836 (docs review round), 5f05dbe (P0.5
+  feature), fcdbe89 (docs result/lessons).
 - Bài học 47–50 (LESSONS_LEARNED) + 4 bullet mới trong skill §8/§4.
