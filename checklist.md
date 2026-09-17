@@ -12,6 +12,26 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
 - [x] Verify endpoint ngrok sau khi xoá: `ping` HTTP 200, `get_logged_user` → Administrator,
       versions → frappe 16.17.2 / erpnext 16.16.0 + 3 app custom (camvlxd, custom_app, feed_dealer)
 
+## B0. P1G — integrity + reports + Exit Gate (2026-09-17)
+
+- [x] Script integrity AR vs Batch Debt (`feed_dealer.setup.p1g_integrity`) — dataset 60 giao dịch
+      ngẫu nhiên (SO→SI nhiều lứa/nhiều thuế → PE (14 có references / 31 trống) → return → offset)
+- [x] Bằng chứng `P1G INTEGRITY: ALL PASS` 9/9: C1 `BD 11.289.000 == TT 156.345.000 − PA 143.851.000
+      − OF 1.205.000` (diff 0); C7 diff −121.467.000 **phân rã đúng 4 nhóm, residual 0**
+- [x] Ngưỡng dung sai **0 đồng** + lý do đã ghi (số nguyên VND cùng cột, không FX/không làm tròn)
+- [x] Mutation-check: bỏ `offset_amount` → C1+C7 đỏ, diff đúng 1.205.000 → khôi phục xanh lại
+- [x] Số liệu cho VIỆC 1 (FIFO bỏ qua `references`): `ER 41.372.500` vs `PA 143.851.000` ⇒ gap
+      **−102.478.500** — CHỜ chủ dự án quyết, agent KHÔNG tự sửa cơ chế FIFO
+- [x] Bug thật P1D do dataset tìm ra (trả 1 dòng của hoá đơn nhiều dòng bị chặn) — đã vá generator +
+      thêm regression `p1d T8`; P1D `8/8`
+- [x] 7 báo cáo Desk: 6 Query Report + 1 Script Report (`customer_credit_limit` gọi đúng hàm gate)
+- [x] Bằng chứng `P1G REPORTS: ALL PASS` 4/4 (mọi report chạy qua chính runner của Desk, có số dòng)
+- [x] Exit Gate Phase 1 → `EXIT_GATE_PHASE1.md`: 5/7 tiêu chí PASS, **Performance + UX NOT ASSESSABLE**
+- [x] Regression đầy đủ sau khi sửa: P0 9/9 · P1A 8/8 · P1B 10/10 · P1C 10/10 · P1D 8/8 · P1F 9/9
+- [ ] Tài khoản Desk thật (Manager/Staff) + role `Driver` cho P2 — **cần chủ dự án** (mật khẩu/chính sách)
+- [ ] Ngưỡng hiệu năng + đo trên dữ liệu lớn — chưa đủ điều kiện đánh giá
+- [ ] **P0.5 import nợ đầu kỳ** — BẮT BUỘC trước go-live với dữ liệu khách thật (xem next.md)
+
 ## B. Change `p0-feed-dealer-foundation` (44/46 task, `openspec validate` OK)
 
 - [x] App `feed_dealer` đẩy lên Mac (83/83 file khớp) — bind-mount vào bench site `frontend`

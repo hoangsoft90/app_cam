@@ -310,3 +310,39 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
     `find <path> -name <pat> -delete` hoặc `python3 -c "print(__import__('os').unlink('<path>'))"`.
     `push_to_mac.py` KHÔNG xoá file chỉ có trên Mac (chỉ báo "extra files"), nên xoá local rồi
     phải xoá tay trên Mac (đó là cách `_p1d_probe.py`/`_t9_probe.py` sống sót).
+36. **Dataset ngay từ đầu phải sinh DỮ LIỆU THẬT đa dạng — nó tìm ra bug mà test viết tay bỏ sót.**
+    Dataset P1G (60 giao dịch ngẫu nhiên có seed: hoá đơn nhiều lứa, nhiều thuế suất, phiếu thu có/không
+    `references`, trả hàng từng phần, cấn trừ) lộ ngay 1 bug thật của P1D: trả **1 dòng của hoá đơn
+    nhiều dòng** bị chặn, vì `_map_debts_from_note` chạy TRƯỚC khi cắt các dòng `make_return_doc` tự
+    điền. Mọi test P1D cũ đều trả **cả** hoá đơn nên không bao giờ chạm ca này. Bài học kép:
+    (a) test "1 hoá đơn 1 dòng" KHÔNG đại diện cho "1 hoá đơn nhiều dòng";
+    (b) khi một hàm mapper tự điền thêm dòng, thứ tự "lọc trước hay map trước" là bug tiềm ẩn.
+37. **Đẳng thức kiểm tra phải là đẳng thức TUYỆT ĐỐI, và phải chứng minh nó có răng.** Viết ra
+    `BD = TT − PA − OF` rồi để dung sai 0 đồng: mọi số hạng là tổng số nguyên cùng đơn vị, nên lệch
+    ≠ 0 luôn là thiếu số hạng hoặc lỗi thật. Kèm **mutation-check** (bỏ 1 số hạng trong công thức
+    sản xuất → check phải đỏ **đúng bằng** số hạng đó). Ngoài ra phải có check "dataset không thoái
+    hoá" (đủ return/offset/receipt có references), nếu không các check khác có thể PASS vì lý do sai.
+38. **Đừng để check PASS trên DB rỗng (`0 == 0`).** `ensure_dataset` cũ chỉ kiểm "đã có customer
+    chưa" — một build chết giữa đường đã commit customer (do `_set_limit` commit) nên lần sau nó
+    tưởng dataset đã có, và 9/9 check PASS trên database trống. Phải có **marker chỉ được ghi khi
+    build chạy xong** và `_facts()` từ chối chạy nếu marker thiếu.
+39. **Frappe: `bench migrate` BỎ QUA standard doc khi `modified` không mới hơn** — nên một file
+    report/print format sửa xong, `--check` báo không drift, mà DB vẫn giữ bản cũ (đo được:
+    `tabReport.query` còn bản cũ). Cách chuẩn: `frappe.reload_doc(module, "report", name, force=True)`
+    trong một patch idempotent. Kèm: **Query Report phải BẮT ĐẦU bằng `SELECT`/`WITH`** — comment `--`
+    ở đầu làm `check_safe_sql_query` từ chối ("Query must be of SELECT or read-only WITH type").
+40. **Report về một LUẬT phải gọi chính hàm của luật, không viết lại bằng SQL.** Report hạn mức nếu
+    tự tính "limit − nợ lứa" sẽ hiện NHIỀU hơn số gate thực cho (gate còn trừ đơn đã submit chưa xuất
+    hoá đơn + đơn nháp) ⇒ chủ dự án nhìn một con số mà hệ thống không tôn trọng. Dùng Script Report
+    gọi `credit_position()`; acceptance assert theo từng khách + assert có ít nhất 1 khách có cam kết
+    cấp đơn (nếu không, check không phân biệt được hai công thức).
+41. **Công cụ MCP: urllib chết vì DNS chỉ trả IPv6 và vì argv quá dài.** Client phải gọi qua
+    **curl có `--resolve` ghim IPv4**, và **payload gửi qua file** (`--data-binary @/tmp/payload.json`)
+    — push cả app (~140KB base64) bằng argv làm `subprocess` ném `OSError: [Errno 7] Argument list
+    too long`. Ngoài ra `/tmp` mất giữa phiên → dựng lại cầu nối bằng `.agent/akimcp.py export`
+    (đọc credential AKI_* từ `.env`, gitignored) thay vì hỏi lại chủ dự án.
+42. **Lỗi từ APP KHÁC cũng làm test của mình đỏ — đọc traceback trước khi nghi code mình.** Một lần
+    rebuild dataset chết với `NameError: name 'is_perpetual_inventory_enabled' is not defined` —
+    traceback chỉ đích danh `custom_app/.../stock_integrity.py` (hook `Sales Invoice.on_submit`), và
+    file đó đang được chủ dự án sửa song song (line number lệch 1 dòng giữa 2 lần đọc = bằng chứng
+    file vừa đổi). Retry sau đó xanh lại. Không sửa app của người khác, không tự kết luận code mình sai.

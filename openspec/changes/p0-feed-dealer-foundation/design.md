@@ -315,8 +315,62 @@ Found by review of the P1F livestock-offset JE, and it applies to every hook in 
    `Journal Entry Account.batch_debt` belonging to the fixture customers, and a `FAILED:` line in a
    cleanup report is treated as a real bug rather than noise.
 
+### D23 — The AR-vs-Batch-Debt integrity check is an exact identity, tolerance 0 VND
+
+P1G's integrity script (`feed_dealer.setup.p1g_integrity`) does not compare two loose totals and
+call a small difference "close enough". It asserts two identities that must hold EXACTLY, over a
+seeded 60-transaction dataset of real documents (SO → SI with several batches and several tax
+treatments → receipts, most with empty `references` → returns → livestock offsets):
+
+```
+BD = TT − PA − OF                                   (the view mirrors the ledger)
+BD − TE = (−U) + ER + (−PA) + (−OF)                 (the view is a slice of AR, term by term)
+```
+
+where `TT` is the net of the invoice lines this app tracks, `U` the part of AR it deliberately does
+not track (VAT, lines with no batch), `ER` what ERPNext applied at invoice level, `PA` what our FIFO
+applied, `OF` livestock offsets. **Why 0 and not a small tolerance:** every term is an integer VND sum
+of the same columns — no FX, no percentage rounding, no pro-rating — so a non-zero difference is
+never float noise; it is either a missing term or a defect. The tolerance is therefore not a knob to
+loosen, and C7 reports the decomposition instead of hiding a residual. A mutation check (dropping
+`offset_amount` from the outstanding formula) turns C1 and C7 red with a difference exactly equal to
+the offending 1.205.000, which is how the checks' teeth are demonstrated.
+
+Recorded consequence, for the decision the owner still owes: with 31 of 45 receipts carrying no
+`references` (assumption D19), our FIFO attributed 143.851.000 to batches while ERPNext applied only
+41.372.500 at invoice level — a gap of 102.478.500. That is D19 working as designed, not a defect,
+but it is the measured size of "two mechanisms, two stories" and is reported rather than smoothed.
+
+### D24 — Credit-limit report is a Script Report over the gate, not a SQL copy of it
+
+Six of the seven P1G reports are Query Reports (SQL in the JSON). `customer_credit_limit` is a
+Script Report that calls `feed_dealer.credit_limit.credit_position()` — the same function the Sales
+Order gate enforces. The tempting one-line SQL (limit − batch debt) would have shown the owner MORE
+available credit than the gate actually allows, because the gate also counts orders that are
+submitted-but-not-invoiced and drafts holding limit. Drift between a report and the rule it claims to
+state is worse than having no report, so the rule is not written twice. Acceptance R4 asserts the
+report equals the gate for every customer AND that at least one dataset customer carries order-level
+commitment — otherwise the check could not tell the two formulas apart.
+
+### D25 — A standard Report edit needs a force re-import patch, because `modified` is fixed
+
+`.agent/gen_reports.py` writes a constant `modified` stamp on purpose: `--check` diffs its output
+against disk byte-for-byte, and that is what keeps the generator the single writer (the same rule the
+DocType generator follows). The trap, measured: `bench migrate` imports a standard document only when
+the file is NEWER than the database row, so after the first install a later query edit is silently
+ignored — `approval_audit_log` kept a query starting with a `--` comment (which frappe's
+`check_safe_sql_query` rejects) while the file on disk was already fixed and `--check` reported no
+drift. `patches/v1_0/reimport_reports.py` therefore calls `frappe.reload_doc(..., force=True)` for
+every report; it is idempotent and runs on each migrate. Related: a Query Report's SQL must START with
+`SELECT`/`WITH`, so explanatory `--` comments have to sit after the `SELECT` keyword.
+
 ## Risks / Trade-offs
 
+- [The integrity dataset lives on the real site] → It is 60 seeded transactions under the
+  `P1G-INTEGRITY` prefix and `cleanup()` removes it in dependency order; the build marker
+  (`feed_dealer_p1g_dataset_built`) is cleared with it. The generator also refuses to treat
+  "customers exist" as "dataset exists": a build that died halfway used to leave customers behind, and
+  every identity then passed as `0 == 0` on an empty database.
 - [Deploying to a live site that other people and apps are using] → Every master step is create-if-absent and name-resolved; nothing is renamed, re-parented or deleted; the only writes are new DocTypes, new roles/masters and acceptance fixtures named `P0-ACCEPT…`, which `cleanup()` removes.
 - [A DocType name collision silently corrupts another app — this already happened once] → The collision check is now part of the shipped DocType contract (`platform-runtime`), and the incident is recorded in D4 rather than only in commit history.
 - [Orphan columns left on `tabBatch` by the collision] → Accepted for now and left as a user decision, because dropping columns is irreversible DDL on a live site.
@@ -335,4 +389,8 @@ Found by review of the P1F livestock-offset JE, and it applies to every hook in 
 2. `bench --site frontend install-app feed_dealer` (once), then `bench --site frontend migrate` so the DocTypes sync and the master-seed patch runs.
 3. Run `bench --site frontend execute feed_dealer.setup.p0_acceptance.run` and capture the table; all checks must read PASS.
 4. Re-run `migrate` and the acceptance script to prove idempotency.
-5. Rollback: the app is additive. `bench --site frontend uninstall-app feed_dealer` removes its DocTypes and its records; the generated files are re-creatable from the generator, and the target site's pre-existing data was never touched. Once P0.5 has imported real debt, rollback becomes restore-from-backup and is no longer covered by this plan.
+5. P1G: `bench --site frontend execute feed_dealer.setup.p1g_integrity.run` (builds the seeded dataset
+   on first run) and `feed_dealer.setup.p1g_reports_check.run`; `EXIT_GATE_PHASE1.md` records the
+   seven-criterion DoD state. The dataset can be removed with `feed_dealer.setup.p1g_integrity.cleanup`
+   once the owner has reviewed the manual cases.
+6. Rollback: the app is additive. `bench --site frontend uninstall-app feed_dealer` removes its DocTypes and its records; the generated files are re-creatable from the generator, and the target site's pre-existing data was never touched. Once P0.5 has imported real debt, rollback becomes restore-from-backup and is no longer covered by this plan.

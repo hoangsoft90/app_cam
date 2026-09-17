@@ -48,6 +48,15 @@ Nguồn tổng hợp: `.plan/plan_final*.md` + v2.1/v2.2/v2.3 patches, OpenSpec 
 ### Công cụ triển khai (ngoài app, trong `.agent/`, không commit)
 `gen_feed_dealer.py` (generator DocType), `push_to_mac.py` (sync app), `bench.py`/`mac.py`/`mcp_client.py` (cầu MCP sang Mac), `push_file.py`.
 
+## 1h. P1G — Báo cáo Desk + đối chiếu AR vs Batch Debt (đã có, 2026-09-17)
+
+| Nhóm | Chi tiết |
+|---|---|
+| 7 báo cáo Desk | `debt_by_batch` (Nợ theo lứa) · `overdue_batch_debts` (Nợ quá hạn) · `payment_allocation_detail` (Phân bổ thanh toán) · `cash_flow_30_60_90` (Dòng tiền 30-60-90) · `batch_profit_loss` (Lời/Lỗ theo lứa — mới có revenue, cost=NULL có chủ ý) · `customer_credit_limit` (Hạn mức tín dụng — Script Report gọi thẳng gate) · `approval_audit_log` (Nhật ký phê duyệt). Role: Manager/Staff tuỳ báo cáo |
+| Script integrity | `feed_dealer.setup.p1g_integrity` — sinh dataset thật (seed cố định) rồi kiểm 2 đẳng thức tiền tuyệt đối (dung sai 0 đồng); có `cleanup()` để dọn |
+| Exit Gate Phase 1 | `EXIT_GATE_PHASE1.md` — 7 tiêu chí DoD, ghi rõ tiêu chí nào PASS bằng chứng nào, tiêu chí nào NOT ASSESSABLE |
+| Chưa làm (thuộc P1G nhưng cần bên ngoài) | Tài khoản Desk thật + role `Driver` (P2); ngưỡng & đo hiệu năng dữ liệu lớn |
+
 ## 2. Tương lai — theo plan & phase
 
 ### P0.5 — Migration dữ liệu

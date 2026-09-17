@@ -67,6 +67,40 @@ Custom DocType sống **chỉ trong DB** của site: không versioned trong git,
 khác, và **không có Python controller** → P0 không viết được validate/bắt buộc bằng code. Nên P0 chấp
 nhận đường dài hơn (push app + migrate) để schema nằm trong app.
 
+## 10b. P1G đo được gì về chuyện FIFO bỏ qua `references`? Có phải lỗi không?
+
+Không phải lỗi — là giả định D19 đang chạy đúng thiết kế, nhưng giờ đã có **số thật**: trên dataset
+60 giao dịch, FIFO theo lứa phân bổ **143.851.000đ** trong khi ERPNext chỉ cấn trừ ở cấp hoá đơn
+**41.372.500đ** (31/45 phiếu thu để trống `references`). Nghĩa là với 71% số phiếu thu, "hoá đơn còn
+nợ" và "nợ theo lứa đã trả" nói hai chuyện khác nhau. Agent **không tự sửa** cơ chế phân bổ — con số
+này để chủ dự án quyết. Đẳng thức AR-vs-Batch-Debt vẫn đúng tuyệt đối (lệch 0 đồng) và đã phân rã
+thành 4 nhóm có tên, trong đó `ER − PA` chính là khoản lệch này.
+
+## 10c. Vì sao check integrity dùng dung sai **0 đồng** mà không phải một ngưỡng "hợp lý"?
+
+Vì mọi số hạng đều là tổng số nguyên VND trên cùng các cột — không quy đổi ngoại tệ, không làm tròn
+phần trăm, không phân bổ theo tỷ lệ. Lệch khác 0 **luôn** là thiếu một số hạng trong đẳng thức hoặc
+lỗi thật, không bao giờ là nhiễu số thực. Nới ngưỡng sẽ biến "phát hiện lệch" thành "che lệch".
+Để chứng minh đẳng thức không phải đồ trang trí, tôi chạy **mutation-check**: bỏ `offset_amount` khỏi
+công thức nợ trong code sản xuất → C1+C7 **đỏ**, lệch đúng 1.205.000; khôi phục → xanh lại.
+
+## 10d. Vì sao chọn Script Report cho "Hạn mức tín dụng" thay vì SQL như 6 báo cáo kia?
+
+Vì báo cáo này nói về **một luật** (P1C). Nếu viết lại bằng SQL ("hạn mức − nợ lứa"), nó sẽ hiện
+NHIỀU hạn mức hơn số gate thực sự cho phép — gate còn trừ đơn đã submit chưa xuất hoá đơn và đơn nháp
+đang giữ hạn mức. Script Report gọi thẳng `credit_position()`, tức là không có bản sao thứ hai của
+luật; acceptance kiểm "report == gate" cho từng khách và còn kiểm phải có ít nhất 1 khách có cam kết
+cấp đơn (nếu không thì không phân biệt được hai công thức).
+
+## 10e. Sửa file báo cáo rồi `migrate` mà Desk vẫn hiện bản cũ?
+
+Đúng bẫy đã gặp: `bench migrate` **chỉ import standard doc khi file mới hơn** dòng trong DB. Vì
+`.agent/gen_reports.py` ghi `modified` cố định (để `--check` so byte-for-byte được), lần sửa sau bị
+im lặng bỏ qua — đo được: `tabReport.query` vẫn là bản cũ dù file trên đĩa đã đúng. Cách xử lý: patch
+`v1_0/reimport_reports` gọi `frappe.reload_doc(..., force=True)`, idempotent, chạy mỗi migrate. Kèm
+một bẫy nữa: Query Report **phải bắt đầu bằng `SELECT`** — comment `--` ở đầu bị
+`check_safe_sql_query` từ chối.
+
 ## 10. `open-code-review` (OCR) có chạy không?
 
 Không khả dụng trong phiên này (chưa cài/cấu hình). Theo AGENTS.md, review fallback về chế độ thủ công:

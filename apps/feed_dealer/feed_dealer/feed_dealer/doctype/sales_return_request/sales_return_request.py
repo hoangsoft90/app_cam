@@ -348,13 +348,26 @@ def _build_credit_note(request):
 
 	note = make_return_doc("Sales Invoice", original_name)
 	note.feed_dealer_return_request = request.name
-	_map_debts_from_note(note)
 
 	# Trim the mapper's rows to what the request actually returns: make_return_doc
 	# prefills EVERY line with the not-yet-returned remainder; a partial return
 	# must not credit the untouched lines.
+	#
+	# ORDER MATTERS (bug found by the P1G integrity dataset, 2026-09-17): the
+	# mapping used to run BEFORE this trim, so returning one line of a
+	# multi-line invoice was refused with "không map được về dòng yêu cầu trả
+	# hàng" — the mapper had prefilled the *other* lines and the mapper does not
+	# know about the request. Every P1D test returned a whole invoice's lines, so
+	# the case never came up. Trim first, then attribute.
 	keep = {row.return_line for row in request.items}
 	note.items = [line for line in note.items if line.sales_invoice_item in keep]
+	if not note.items:
+		frappe.throw(
+			f"Yêu cầu trả hàng không khớp dòng nào của hoá đơn gốc {original_name} — kiểm tra "
+			f"'Dòng hóa đơn gốc' (return_line) trên từng dòng.",
+			title="Không có dòng trả lại",
+		)
+	_map_debts_from_note(note)
 	for line in note.items:
 		matching = [row for row in request.items if row.return_line == line.sales_invoice_item]
 		if len(matching) > 1:

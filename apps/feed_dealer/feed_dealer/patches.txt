@@ -7,3 +7,4 @@
 feed_dealer.patches.v0_0_1.seed_masters
 feed_dealer.patches.v1_0.drop_orphan_batch_columns
 feed_dealer.patches.v1_0.install_print_formats
+feed_dealer.patches.v1_0.reimport_reports

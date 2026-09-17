@@ -1,0 +1,32 @@
+{
+ "add_total_row": 1,
+ "columns": [],
+ "creation": "2026-09-17 00:00:00.000000",
+ "disable_prepared_report": 0,
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [],
+ "idx": 0,
+ "is_standard": "Yes",
+ "letter_head": "",
+ "modified": "2026-09-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "overdue_batch_debts",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "SELECT\n  bd.name AS `debt`,\n  bd.customer AS `customer`,\n  bd.batch AS `batch`,\n  bd.sales_invoice AS `sales_invoice`,\n  bd.due_date AS `due_date`,\n  DATEDIFF(CURDATE(), bd.due_date) AS `overdue_days`,\n  bd.outstanding_amount AS `outstanding`,\n  bd.late_payment_fee AS `late_payment_fee`,\n  bd.status AS `status`\nFROM `tabBatch Debt` bd\nWHERE bd.docstatus = 1\n  AND bd.outstanding_amount > 0\n  AND bd.due_date < CURDATE()\nORDER BY bd.due_date ASC\n",
+ "ref_doctype": "Batch Debt",
+ "report_name": "overdue_batch_debts",
+ "report_type": "Query Report",
+ "roles": [
+  {
+   "role": "Feed Dealer Manager"
+  },
+  {
+   "role": "Feed Dealer Staff"
+  }
+ ],
+ "timeout": 0
+}

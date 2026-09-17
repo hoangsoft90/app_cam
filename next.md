@@ -26,15 +26,20 @@
 
 ## Sắp tới — ngắn hạn
 
-1. **[ ] P1G** (báo cáo + integrity + Exit Gate) — việc kế tiếp đúng thứ tự chain:
-   - 7 báo cáo Desk: Nợ theo lứa, Nợ quá hạn, Phân bổ thanh toán, Dòng tiền 30-60-90,
-     Lời/Lỗ theo lứa, Hạn mức tín dụng, Nhật ký phê duyệt (stub OK)
-   - **Script integrity**: dataset 50–100 giao dịch ngẫu nhiên (SO→SI→PE→return→offset) rồi so
-     `SUM(Batch Debt outstanding) == AR` (tolerance định nghĩa được) — đây cũng chính là chỗ verify
-     bằng số liệu thật cho VIỆC 1 (FIFO bỏ qua `references`): nếu hai cơ chế phân bổ lệch nhau, con số
-     AR-vs-Batch-Debt sẽ lộ ra chứ không im lặng
-   - Checklist DoD Phase 1 (7 tiêu chí) + tài khoản Manager/Staff/Driver + backup documented
-2. **[!] P1E e-invoice = BLOCKED** — cần provider (VNPT/Viettel/MISA) + credential sandbox + mã số
+1. **[x] P1G ĐÃ XONG (2026-09-17)** — integrity `9/9`, reports `4/4`, Exit Gate đã viết:
+   - Integrity: dataset 60 giao dịch (seed cố định) + 2 **đẳng thức tuyệt đối** (tolerance 0 VND):
+     `BD = TT − PA − OF` và `BD − TE = (−U)+ER+(−PA)+(−OF)`. Bằng chứng: `P1G INTEGRITY: ALL PASS`
+   - Dataset phát hiện **1 bug thật của P1D** (trả 1 dòng của hoá đơn nhiều dòng) → đã vá + thêm `T8`
+   - 7 báo cáo Desk (6 Query + 1 Script) — bảng slug ↔ nhãn tiếng Việt nằm trong `EXIT_GATE_PHASE1.md`
+   - **Số liệu CHỜ QUYẾT ĐỊNH:** FIFO phân bổ 143.851.000 nhưng ERPNext chỉ cấn trừ cấp hoá đơn
+     41.372.500 (31/45 phiếu thu để trống `references`) ⇒ **gap −102.478.500**. Chủ dự án xem số rồi
+     quyết có đổi cơ chế phân bổ hay không — agent chưa đụng vào FIFO
+2. **[ ] Tài khoản Desk thật + role `Driver` (P2)** — cần chủ dự án cấp (hiện chỉ có user test
+   `p0-acceptance-*` / `p1c-acceptance-*`); role Manager/Staff/Farmer đã tổn tại
+3. **[ ] Ngưỡng hiệu năng + đo dữ liệu lớn** — mục Performance của Exit Gate đang NOT ASSESSABLE
+4. **[ ] Dọn dataset P1G** khi chủ dự án đã review số thủ công:
+   `bench execute feed_dealer.setup.p1g_integrity.cleanup` (xoá theo thứ tự phụ thuộc + xoá marker)
+2b. **[!] P1E e-invoice = BLOCKED** — cần provider (VNPT/Viettel/MISA) + credential sandbox + mã số
    thuế + quy ước NĐ 123 (Cancel/Adjust/Replace). Xem `result_P1E_BLOCKED_2026-09-17.txt`
 3. **[?] Hành vi hạn mức đã chốt** (xem checklist.md mục D): chặn đơn nháp vượt hạn mức **ngay lúc
    tạo** (theo v2.2 MUST-3) — nếu muốn theo prompt cũ (chỉ chặn lúc submit) thì nói, tôi đổi

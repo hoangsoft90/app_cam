@@ -1,0 +1,29 @@
+{
+ "add_total_row": 0,
+ "columns": [],
+ "creation": "2026-09-17 00:00:00.000000",
+ "disable_prepared_report": 0,
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [],
+ "idx": 0,
+ "is_standard": "Yes",
+ "letter_head": "",
+ "modified": "2026-09-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "approval_audit_log",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "SELECT\n  -- One row per approval decision, from the two places this app records one:\n  -- a Sales Return Request decision and a manager's credit-limit override.\n  'Sales Return Request' AS `kind`,\n  r.name AS `document`,\n  r.customer AS `party`,\n  r.approval_status AS `decision`,\n  r.approved_by AS `approved_by`,\n  r.approved_at AS `approved_at`,\n  r.reason AS `note`\nFROM `tabSales Return Request` r\nWHERE r.approved_at IS NOT NULL\nUNION ALL\nSELECT\n  'Credit Limit Override' AS `kind`,\n  cs.name AS `document`,\n  cs.customer AS `party`,\n  'Override' AS `decision`,\n  cs.override_by AS `approved_by`,\n  cs.override_date AS `approved_at`,\n  cs.override_reason AS `note`\nFROM `tabCredit Score` cs\nWHERE cs.manual_override = 1 AND cs.override_date IS NOT NULL\nORDER BY `approved_at` DESC\n",
+ "ref_doctype": "Sales Return Request",
+ "report_name": "approval_audit_log",
+ "report_type": "Query Report",
+ "roles": [
+  {
+   "role": "Feed Dealer Manager"
+  }
+ ],
+ "timeout": 0
+}

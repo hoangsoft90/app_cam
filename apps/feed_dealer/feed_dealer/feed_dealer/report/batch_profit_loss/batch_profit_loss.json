@@ -1,0 +1,29 @@
+{
+ "add_total_row": 1,
+ "columns": [],
+ "creation": "2026-09-17 00:00:00.000000",
+ "disable_prepared_report": 0,
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [],
+ "idx": 0,
+ "is_standard": "Yes",
+ "letter_head": "",
+ "modified": "2026-09-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "batch_profit_loss",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "SELECT\n  -- REVENUE VIEW, NOT A FULL P/L. `cost_of_goods` is NULL on purpose: a real cost\n  -- needs the purchase side (P0.5 opening stock + valuation) and guessing it from\n  -- feed invoices would produce a number nobody can reconcile. Until then this\n  -- report states what was invoiced, returned and collected per batch.\n  bd.batch AS `batch`,\n  bd.customer AS `customer`,\n  SUM(bd.allocated_amount) AS `invoiced`,\n  SUM(bd.returned_amount) AS `returned`,\n  SUM(bd.allocated_amount - bd.returned_amount) AS `revenue_net`,\n  SUM(bd.offset_amount) AS `netted_by_livestock`,\n  SUM(bd.paid_amount) AS `collected`,\n  SUM(bd.outstanding_amount) AS `receivable`,\n  NULL AS `cost_of_goods`\nFROM `tabBatch Debt` bd\nWHERE bd.docstatus = 1\nGROUP BY bd.batch, bd.customer\nORDER BY `revenue_net` DESC\n",
+ "ref_doctype": "Batch Debt",
+ "report_name": "batch_profit_loss",
+ "report_type": "Query Report",
+ "roles": [
+  {
+   "role": "Feed Dealer Manager"
+  }
+ ],
+ "timeout": 0
+}

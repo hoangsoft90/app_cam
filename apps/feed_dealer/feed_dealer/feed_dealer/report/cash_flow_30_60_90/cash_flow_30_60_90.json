@@ -1,0 +1,29 @@
+{
+ "add_total_row": 1,
+ "columns": [],
+ "creation": "2026-09-17 00:00:00.000000",
+ "disable_prepared_report": 0,
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [],
+ "idx": 0,
+ "is_standard": "Yes",
+ "letter_head": "",
+ "modified": "2026-09-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "cash_flow_30_60_90",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "SELECT\n  bd.customer AS `customer`,\n  SUM(CASE WHEN bd.outstanding_amount > 0 AND bd.due_date < CURDATE()\n           THEN bd.outstanding_amount ELSE 0 END) AS `overdue`,\n  SUM(CASE WHEN bd.outstanding_amount > 0 AND bd.due_date >= CURDATE()\n            AND bd.due_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)\n           THEN bd.outstanding_amount ELSE 0 END) AS `due_0_30`,\n  SUM(CASE WHEN bd.outstanding_amount > 0\n            AND bd.due_date > DATE_ADD(CURDATE(), INTERVAL 30 DAY)\n            AND bd.due_date <= DATE_ADD(CURDATE(), INTERVAL 60 DAY)\n           THEN bd.outstanding_amount ELSE 0 END) AS `due_31_60`,\n  SUM(CASE WHEN bd.outstanding_amount > 0\n            AND bd.due_date > DATE_ADD(CURDATE(), INTERVAL 60 DAY)\n            AND bd.due_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)\n           THEN bd.outstanding_amount ELSE 0 END) AS `due_61_90`,\n  SUM(CASE WHEN bd.outstanding_amount > 0\n            AND bd.due_date > DATE_ADD(CURDATE(), INTERVAL 90 DAY)\n           THEN bd.outstanding_amount ELSE 0 END) AS `due_over_90`,\n  SUM(bd.outstanding_amount) AS `outstanding_total`\nFROM `tabBatch Debt` bd\nWHERE bd.docstatus = 1\nGROUP BY bd.customer\nORDER BY `outstanding_total` DESC\n",
+ "ref_doctype": "Batch Debt",
+ "report_name": "cash_flow_30_60_90",
+ "report_type": "Query Report",
+ "roles": [
+  {
+   "role": "Feed Dealer Manager"
+  }
+ ],
+ "timeout": 0
+}

@@ -315,10 +315,35 @@ keeps describing what actually shipped.
   `Livestock Sale` links (origin of the "2 debts for one invoice" fixture break).
   *Evidence:* `P1F 9/9` + regression P0 9/9 · P1A 8/8 · P1B 10/10 · P1C 10/10 · P1D 7/7, all
   captured under `/tmp/*_fin.log` on the container after `clear-cache`.
-- [ ] 13.7 NOT DONE in this pass, by design: the 7 Desk reports of P1G (`Nợ theo lứa`, `Nợ quá hạn`,
-  `Phân bổ thanh toán`, `Dòng tiền 30-60-90`, `Lời/Lỗ theo lứa`, `Hạn mức tín dụng`, `Nhật ký phê
-  duyệt`) and the Phase-1 Exit Gate checklist. The AR-vs-Batch-Debt integrity script is described in
-  `next.md` as the next step.
+- [x] 13.7 DONE (2026-09-17, P1G): 7 Desk reports shipped — 6 Query Reports (`debt_by_batch`,
+  `overdue_batch_debts`, `payment_allocation_detail`, `cash_flow_30_60_90`, `batch_profit_loss`,
+  `approval_audit_log`) + 1 Script Report (`customer_credit_limit`, calls the P1C gate itself, D24).
+  Owned by `.agent/gen_reports.py` (`--check` clean), installed via `patches/v1_0/reimport_reports`
+  (D25). *Evidence:* `P1G REPORTS: ALL PASS` 4/4 — R2 lists every report's row/column counts
+  (`approval_audit_log=40r/7c`, `payment_allocation_detail=126r/10c`, …), R4 proves the report matches
+  the gate for 15 customers (8 carrying order-level commitment). Vietnamese labels ↔ slugs are in
+  `EXIT_GATE_PHASE1.md`.
+
+## 14b. Phase 1G — SoT integrity + Exit Gate
+
+- [x] 14b.1 AR-vs-Batch-Debt integrity script (`feed_dealer.setup.p1g_integrity`): seeded
+  60-transaction dataset (70 invoices incl. 10 credit notes, 13 SO→SI, 45 receipts of which 14
+  reference-bearing, 5 advances, 10 returns, 3 offsets, 94 open debts, 18 batches) + 9 checks.
+  *Evidence:* `P1G INTEGRITY: ALL PASS` 9/9 — C1 `BD 11.289.000 == TT 156.345.000 − PA 143.851.000 −
+  OF 1.205.000` (diff 0), C7 `−121.467.000` decomposed exactly into four named buckets (residual 0),
+  tolerance 0 VND (D23). Mutation check: removing `offset_amount` from the outstanding formula turns
+  C1+C7 red with diff exactly 1.205.000.
+- [x] 14b.2 Real defect found BY the dataset and fixed: returning one line of a multi-line invoice was
+  refused, because `_map_debts_from_note` ran before `make_return_doc`'s rows were trimmed to the
+  request. Every earlier P1D test returned a whole invoice's lines (T4 returns both rows), so the
+  normal field case was never exercised. Fix + new regression `p1d T8` (P1D now 8/8); dataset refuses
+  a return whose value would exceed the debt's live outstanding, which is the P1D value guard doing
+  its job.
+- [x] 14b.3 Phase-1 Exit Gate written: `EXIT_GATE_PHASE1.md` — Functional PASS (P1E BLOCKED),
+  Security/Data-integrity/Failure-recovery/Audit PASS, Performance + UX **NOT ASSESSABLE** (no
+  large-data measurement, no real user account). Not signed off by the agent: needs the owner.
+- [ ] 14b.4 OPEN (owner input needed): real Desk accounts (Manager/Staff) and a `Driver` role for P2;
+  performance thresholds + measurement; the FIFO-vs-`references` decision based on 14b.1's numbers.
 
 ## 14. Phase 1E — E-Invoice: BLOCKED (recorded, not faked)
 

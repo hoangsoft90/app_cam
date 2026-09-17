@@ -390,6 +390,59 @@ def check_return_beyond_outstanding_refused():
 	)
 
 
+def check_partial_return_on_multi_line_invoice():
+	"""T8: return ONE line of a multi-line invoice (the P1G integrity dataset's case).
+
+	Regression for a real defect: `_map_debts_from_note` ran BEFORE the mapper's
+	rows were trimmed to the request, so `make_return_doc`'s prefilled rows for the
+	lines this request does NOT return were looked up in the request and refused
+	with "không map được về dòng yêu cầu trả hàng". Every earlier P1D test returned
+	all of an invoice's lines (T4 returns both rows of a two-line invoice), so
+	returning a subset of a multi-line invoice -- the normal field case -- was never
+	exercised and the flow crashed.
+	"""
+	customer = _customer("T8")
+	b1, b2 = _batch("T8a", customer), _batch("T8b", customer)
+	inv = _invoice(
+		[
+			{"qty": 10, "rate": 100_000, "batch": b1},
+			{"qty": 5, "rate": 100_000, "batch": b2},
+		],
+		customer=customer,
+	)
+	debts = _debts(inv.name)
+	if len(debts) != 2:
+		raise AssertionError(f"fixture broken: expected 2 debts, got {debts}")
+	debt1, debt2 = debts[0].name, debts[1].name
+	request = _request(
+		inv,
+		[{"item_code": _item(), "qty": 4, "return_line": _return_line(inv, 0), "batch_debt": debt1}],
+	)
+	_approve(request.name)
+
+	notes = _credit_notes(request.name)
+	if len(notes) != 1:
+		raise AssertionError(f"expected exactly 1 credit note, got {notes}")
+	note = frappe.get_doc("Sales Invoice", notes[0])
+	if len(note.items) != 1:
+		raise AssertionError(
+			f"the note must carry only the returned line, got {[(row.item_code, row.qty) for row in note.items]}"
+		)
+	if flt(note.net_total) != -400_000:
+		raise AssertionError(f"note net_total should be -400,000, got {note.net_total}")
+	first, second = _debt(debt1), _debt(debt2)
+	if flt(first.returned_amount) != 400_000 or flt(first.outstanding_amount) != 600_000:
+		raise AssertionError(f"returned line's debt is wrong: {first}")
+	# The line this request never returned must stay untouched -- the whole point of
+	# per-line attribution (no gross subtraction on the invoice total).
+	if flt(second.returned_amount) != 0 or flt(second.outstanding_amount) != 500_000:
+		raise AssertionError(f"the untouched line's debt must not move: {second}")
+	return (
+		f"{request.name}: 1 of 2 lines returned -> note {note.name} has 1 line "
+		f"({flt(note.net_total):,.0f}); {debt1} -400,000, {debt2} untouched at 500,000"
+	)
+
+
 CHECKS = (
 	("T1  partial return reduces debt", check_partial_return_reduces_outstanding),
 	("T2  over-return refused", check_over_return_refused),
@@ -398,6 +451,7 @@ CHECKS = (
 	("T6  mixed-invoice request refused", check_mixed_invoice_request_refused),
 	("T5  cancel note restores", check_cancel_credit_note_restores),
 	("T7  return beyond outstanding refused", check_return_beyond_outstanding_refused),
+	("T8  partial return of 1 line of N", check_partial_return_on_multi_line_invoice),
 )
 
 

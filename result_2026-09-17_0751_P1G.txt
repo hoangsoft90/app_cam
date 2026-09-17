@@ -1,0 +1,128 @@
+RESULT — P1G (Reports + SoT Integrity + Phase 1 Exit Gate)
+=========================================================
+Date:   2026-09-17 07:51 (local)
+Site:   ERPNext v16, site `frontend`, app feed_dealer (Mac)
+Status: DONE (P1E still BLOCKED, unchanged — not part of this pass)
+Commit: <filled in from `git log -1 --format='%H %s'` after the commit; see working.md>
+
+Bằng chứng chạy trên site thật (mỗi lần đều `clear-cache` + xoá __pycache__ trước khi chạy;
+log nằm TRONG container, đọc lại bằng .agent/read_container_log.py):
+
+  /tmp/p1g_fin.log       P1G INTEGRITY: ALL PASS          (9/9)
+  /tmp/p1g_rep_fin.log   P1G REPORTS: ALL PASS            (4/4)
+  /tmp/p0_fin.log        P0 ACCEPTANCE: ALL PASS          (9/9)
+  /tmp/p1a_fin.log       P1A ACCEPTANCE: ALL PASS         (8/8)
+  /tmp/p1b_fin.log       P1B ACCEPTANCE: ALL PASS         (10/10)
+  /tmp/p1c_fin.log       P1C ACCEPTANCE: ALL PASS         (10/10)
+  /tmp/p1d_fin.log       P1D ACCEPTANCE: ALL PASS         (8/8, có T8 mới)
+  /tmp/p1f_fin.log       P1F ACCEPTANCE: ALL PASS         (9/9)
+  /tmp/p1g_mut.log       mutation: C1 + C7 ĐỎ (7/9)       (7/9)
+
+1) SCRIPT INTEGRITY — AR vs Batch Debt (`feed_dealer.setup.p1g_integrity`)
+----------------------------------------------------------------------------
+Dataset ngẫu nhiên, seed cố định (20260917), 60 giao dịch:
+  transactions 60 · invoices 60 (tổng 70 hoá đơn trên DB gồm 10 credit note) · SO→SI 12-13
+  multi_batch_invoices 24 · two_tax_invoices 15 · unbatched_lines 11
+  receipts 45 (references 14 / trống 31) · advance_receipts 5 · returns 10 · offsets 3
+  → 18 Feed Batch, 94 khoản nợ đang mở
+
+SoT (ngưỡng dung sai = 0 đồng, lý do ở D23 — số nguyên VND cùng cột, không FX/không làm tròn):
+
+  AR_sum_si_outstanding       132,756,000
+  Batch_Debt_outstanding       11,289,000
+  diff                       -121,467,000   (phân rã đúng 4 nhóm, residual 0)
+     -unbatched AR (VAT + dòng không lứa)   -17,783,500
+     +ERPNext cấn trừ ở cấp hoá đơn         +41,372,500
+     -FIFO phân bổ theo lứa                -143,851,000
+     -cấn trừ vật nuôi (JE)                  -1,205,000
+  batched_net_TT              156,345,000
+  fifo_allocated_PA           143,851,000
+  erp_applied_ER               41,372,500
+  offset_OF                     1,205,000
+  returned_RT                   7,575,000
+  receipts_total              148,851,000
+
+  9/9 check PASS, gồm: C1 đẳng thức view-vs-ledger; C2 credit note khớp returned_amount;
+  C3 Feed Batch.total_debt roll-up (18 lứa); C4 không nợ âm + status khớp tiền;
+  C5 phân bổ ≤ tiền đã nhận; C6 ER == tổng references; C7 phân rã AR vs BD;
+  C8 gap FIFO-vs-references giải thích theo từng phiếu thu; C9 dataset đủ "có răng".
+
+  Mutation-check (chứng minh check có răng, không vacuous): bỏ `offset_amount` khỏi công thức
+  `outstanding_amount` → C1+C7 ĐỎ, diff đúng 1,205,000 = đúng số offset bị bỏ; khôi phục →
+  9/9 xanh lại với số liệu y hệt (dataset seed cố định).
+
+  SỐ LIỆU CHO QUYẾT ĐỊNH FIFO (VIỆC 1 kỳ trước): gap = ER − PA = -102,478,500. Đúng như giả định
+  D19 (kế toán để trống `references`), KHÔNG phải lỗi — nhưng đây là kích thước thật của "hai cơ
+  chế kể hai câu chuyện cho cùng một khoản tiền". Agent KHÔNG tự sửa cơ chế phân bổ.
+
+2) BUG THẬT DO DATASET PHÁT HIỆN (P1D) — đã vá + có regression
+----------------------------------------------------------------------------
+  Triệu chứng: trả hàng MỘT dòng của hoá đơn nhiều dòng → `ValidationError: Dòng ... không map
+  được về dòng yêu cầu trả hàng (sales_invoice_item=...)`.
+  Nguyên nhân gốc: `_map_debts_from_note(note)` được gọi TRƯỚC khi cắt các dòng `make_return_doc`
+  tự điền; mapper điền MỌI dòng còn lại của hoá đơn, còn yêu cầu chỉ trả 1 dòng ⇒ dòng không nằm
+  trong yêu cầu bị tra vào yêu cầu → từ chối.
+  Vì sao test cũ không bắt được: mọi test P1D đều trả CẢ hoá đơn (T4 trả cả 2 dòng của hoá đơn 2 dòng).
+  Vá ở nguồn chân lý (.agent/gen_feed_dealer.py): cắt dòng trước, map sau, + guard "không dòng nào
+  khớp hoá đơn gốc" → thêm regression `p1d T8` (trả 1 dòng của hoá đơn 2 dòng, khẳng định note chỉ
+  có 1 dòng và khoản nợ của dòng KHÔNG trả không suy suyển).
+
+3) 7 BÁO CÁO DESK — `P1G REPORTS: ALL PASS` (4/4)
+----------------------------------------------------------------------------
+  slug (tên trên Desk)                        nhãn tiếng Việt
+  ------------------------------------------  ----------------------------
+  debt_by_batch                               Nợ theo lứa
+  overdue_batch_debts                         Nợ quá hạn
+  payment_allocation_detail                   Phân bổ thanh toán
+  cash_flow_30_60_90                          Dòng tiền 30-60-90
+  batch_profit_loss                           Lời/Lỗ theo lứa (chỉ revenue, cost=NULL có chủ ý)
+  customer_credit_limit                       Hạn mức tín dụng  (Script Report — gọi gate)
+  approval_audit_log                          Nhật ký phê duyệt
+
+  R2 (mọi report chạy qua chính runner của Desk):
+     approval_audit_log=40r/7c · batch_profit_loss=69r/9c · cash_flow_30_60_90=37r/7c
+     customer_credit_limit=15r/11c · debt_by_batch=69r/9c · overdue_batch_debts=4r/9c
+     payment_allocation_detail=126r/10c
+  R3 nhật ký phê duyệt: 40 dòng, đủ 2 loại (Sales Return Request + Credit Limit Override)
+  R4 report hạn mức == gate cho 15 khách; 8 khách có cam kết cấp đơn ⇒ bản SQL chỉ-trừ-nợ sẽ lệch
+
+  Quyết định thiết kế: `customer_credit_limit` là SCRIPT report gọi `credit_position()` của P1C,
+  KHÔNG viết lại luật bằng SQL (bản SQL sẽ hiện nhiều hạn mức hơn số gate thực cho).
+
+4) EXIT GATE PHASE 1 — `EXIT_GATE_PHASE1.md`
+----------------------------------------------------------------------------
+  Functional           PASS (P1E e-invoice BLOCKED — thiếu provider/credential)
+  Security             PASS (mở: tài khoản người dùng thật + role Driver cho P2)
+  Data integrity       PASS (2 đẳng thức, sai số 0 đồng, mutation-check)
+  Failure recovery     PASS (huỷ/khôi phục, idempotent, backup 20260917_090031 2.2MiB)
+  Audit                PASS (track_changes trên mọi DocType động tiền + report 40 dòng)
+  Performance          NOT ASSESSABLE (chưa đo dữ liệu lớn)
+  UX / Desk            NOT ASSESSABLE (chưa có tài khoản/ảnh chụp người thật)
+  ⇒ 5/7 PASS, 2/7 chưa đủ điều kiện đánh giá, 1 hạng mục BLOCKED bên ngoài (P1E).
+  Agent KHÔNG tự ký duyệt: cần chủ dự án xem số + review thủ công vài case.
+
+5) TOOLING / MÔI TRƯỜNG (đã gặp trong phiên, đã xử lý)
+----------------------------------------------------------------------------
+  - Cầu nối MCP `/tmp` bị xoá → dựng lại bằng `python3 .agent/akimcp.py export` (đọc credential từ
+    `.env` AKI_* — gitignored).
+  - `.agent/mcp_client.py` đổi sang **curl ghim IPv4** (DNS tailnet chỉ trả IPv6 → urllib chết
+    "Cannot assign requested address") và **payload qua file** (`--data-binary @/tmp/...` vì argv
+    quá dài khi push cả app: `OSError: [Errno 7] Argument list too long`).
+  - Bẫy frappe phát hiện trong phiên: (a) Query Report phải bắt đầu bằng SELECT/WITH — comment `--`
+    ở đầu bị `check_safe_sql_query` từ chối; (b) `bench migrate` BỎ QUA standard doc khi `modified`
+    không mới hơn → patch `v1_0/reimport_reports` gọi `frappe.reload_doc(..., force=True)`.
+  - App khác (`custom_app`) hook `Sales Invoice.on_submit` lỗi `NameError` giữa lúc chủ dự án sửa
+    file → 1 lần rebuild dataset chết vì nó (traceback chỉ đích danh custom_app, KHÔNG phải
+    feed_dealer); retry sau khi file đổi → xanh lại.
+
+6) FILE THAY ĐỔI (chính)
+----------------------------------------------------------------------------
+  apps/feed_dealer/feed_dealer/setup/p1g_integrity.py        (mới) integrity + dataset
+  apps/feed_dealer/feed_dealer/setup/p1g_reports_check.py    (mới) acceptance báo cáo
+  apps/feed_dealer/feed_dealer/setup/p1d_acceptance.py       + T8 regression
+  apps/feed_dealer/feed_dealer/feed_dealer/report/**         (mới) 7 báo cáo
+  apps/feed_dealer/feed_dealer/patches/v1_0/reimport_reports.py (mới) force re-import
+  apps/feed_dealer/feed_dealer/patches.txt                   + patch mới
+  apps/feed_dealer/feed_dealer/feed_dealer/doctype/sales_return_request/*.py  (sinh lại: map sau trim)
+  .agent/gen_feed_dealer.py / .agent/gen_reports.py          nguồn chân lý của phần sinh
+  EXIT_GATE_PHASE1.md (mới) · openspec design D23–D25 + tasks 13.7/14b · working/checklist/next

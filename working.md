@@ -4,6 +4,62 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Đang làm
 
+- [2026-09-17] **P1G — integrity AR vs Batch Debt + 7 báo cáo + Exit Gate Phase 1. ĐÃ TEST trên site
+  thật (clear-cache trước mỗi lần chạy), ĐÃ COMMIT** (hash dán nguyên văn từ `git log -1
+  --format='%H %s'` — xem cuối mục này).
+
+  **(1) Dataset + đẳng thức AR vs Batch Debt** (`feed_dealer/setup/p1g_integrity.py`): sinh dataset
+  ngẫu nhiên seed cố định **60 giao dịch thật** — 70 hoá đơn (10 credit note), 13 SO→SI, 45 phiếu
+  thu (**14 có `references`, 31 để trống theo giả định D19**), 5 phiếu thu vượt nợ, 10 lần trả hàng,
+  3 bút toán cấn trừ, 94 khoản nợ mở, 18 lứa, 24 hoá đơn nhiều lứa, 15 hoá đơn 2 thuế suất. Kết quả
+  **9/9 PASS**, log `/tmp/p1g_fin.log`:
+  ```
+  C1  BD 11.289.000 == TT 156.345.000 − PA 143.851.000 − OF 1.205.000          (diff 0)
+  C7  AR (SUM SI.outstanding) 132.756.000 vs Batch Debt 11.289.000, diff −121.467.000
+      == −17.783.500 [unbatched AR] + 41.372.500 [ERPNext cấn trừ cấp hoá đơn]
+         − 143.851.000 [FIFO theo lứa] − 1.205.000 [cấn trừ vật nuôi]   (residual 0)
+  C8  gap FIFO vs references = −102.478.500
+  ```
+  **Ngưỡng dung sai = 0 đồng** (lý do: mọi số hạng là tổng số nguyên VND trên cùng các cột, không
+  FX/không làm tròn/ không pro-rata) — ghi ở D23, KHÔNG nới ngưỡng để cho qua.
+  **Mutation-check:** bỏ `offset_amount` khỏi công thức `outstanding` → C1+C7 **đỏ**, diff đúng
+  1.205.000 (`/tmp/p1g_mut.log`); khôi phục → 9/9 xanh lại, số liệu y hệt.
+
+  **(2) Bug THẬT của P1D do dataset phát hiện (đã vá + có test):** trả **1 dòng của hoá đơn nhiều
+  dòng** bị chặn — `_map_debts_from_note` chạy TRƯỚC khi cắt dòng của `make_return_doc`, nên các dòng
+  mapper tự điền cho phần KHÔNG trả bị tra vào yêu cầu và bị từ chối (*"không map được về dòng yêu cầu
+  trả hàng"*). Mọi test P1D cũ đều trả **cả** hoá đơn (T4 trả cả 2 dòng) nên ca bình thường ngoài thực
+  địa chưa bao giờ được chạy. Đã sửa ở generator (nguồn chân lý) + thêm regression **`p1d T8`**
+  (P1D `8/8`). Dataset cũng chủ động tính số lượng trả theo `outstanding` **sống** của khoản nợ để
+  không vi phạm guard giá-trị của P1D (chính là guard đó hoạt động đúng).
+
+  **(3) 7 báo cáo Desk** (`.agent/gen_reports.py`, `--check` clean): 6 Query Report + 1 Script Report.
+  `customer_credit_limit` là Script Report gọi **đúng hàm của gate** `credit_position()` — cố tình
+  KHÔNG viết lại luật hạn mức bằng SQL, vì bản SQL (chỉ trừ nợ lứa) sẽ hiện nhiều hạn mức hơn số gate
+  thực cho (gate còn trừ đơn đã submit chưa xuất HĐ + đơn nháp). **4/4 PASS**, log `/tmp/p1g_rep_fin.log`:
+  ```
+  R2  approval_audit_log=40r/7c · batch_profit_loss=69r/9c · cash_flow_30_60_90=37r/7c
+      customer_credit_limit=15r/11c · debt_by_batch=69r/9c · overdue_batch_debts=4r/9c
+      payment_allocation_detail=126r/10c
+  R3  nhật ký phê duyệt 40 dòng, đủ 2 loại quyết định
+  R4  15 khách khớp gate, 8 khách có cam kết cấp đơn (nên bản SQL chỉ-trừ-nợ sẽ lệch)
+  ```
+  Bẫy đã gặp & vá: (a) Query Report **phải bắt đầu bằng `SELECT`** — comment `--` ở đầu làm
+  `check_safe_sql_query` từ chối; (b) `bench migrate` **bỏ qua** standard doc khi `modified` không mới
+  hơn → thêm patch `v1_0/reimport_reports` (`frappe.reload_doc(..., force=True)`).
+
+  **(4) Exit Gate Phase 1** → `EXIT_GATE_PHASE1.md`: Functional PASS (P1E vẫn BLOCKED), Security /
+  Data integrity / Failure recovery / Audit PASS, **Performance + UX = NOT ASSESSABLE** (chưa đo dữ
+  liệu lớn, chưa có tài khoản người dùng thật).
+
+  **Lưu ý môi trường (đã gặp, đã vá phía tooling):** app khác (`custom_app`) có hook `on_submit`
+  trên Sales Invoice đang bị lỗi `NameError` giữa lúc chủ dự án sửa file → một lần rebuild dataset
+  của tôi chết vì nó. Traceback chỉ đích danh `custom_app/.../stock_integrity.py`, KHÔNG phải
+  feed_dealer; retry sau khi file đó đổi → xanh lại. Cầu nối MCP cũng phải dựng lại
+  (`python3 .agent/akimcp.py export`) vì `/tmp` bị xoá, và `mcp_client` phải chuyển sang **curl
+  (ghim IPv4) + payload qua file** — urllib chết `Cannot assign requested address` (DNS chỉ trả IPv6)
+  và argv quá dài khi push cả app.
+
 - [2026-09-17] **Review P1F — đã viết xong code + ĐÃ TEST trên site thật (clear-cache trước mỗi lần
   chạy) — ĐÃ COMMIT** (dán nguyên văn từ `git log -1 --format='%H %s'`):
   ```
