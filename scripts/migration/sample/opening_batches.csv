@@ -1,0 +1,6 @@
+customer_phone,old_batch_code,animal_type,quantity,start_date,status,notes
+0901110001,LOT-CU-001,Lợn,60,2026-05-02,Đang nuôi,
+0901110001,LOT-CU-002,Lợn,80,2026-04-10,Đang nuôi,
+0901110002,LOT-CU-003,Gà,1500,2026-06-01,Đang nuôi,
+0901110004,LOT-CU-004,Lợn,120,2026-03-15,Kết thúc,nợ tồn sau bán lứa
+0901110008,LOT-CU-005,Cá,9000,2026-02-20,Đang nuôi,

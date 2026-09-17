@@ -1,0 +1,11 @@
+customer_name,phone,customer_group,address,tax_id,notes,old_code
+Trần Văn A,0901110001,Trại lớn,"Ấp 1, Xã Bình Thạnh, Hậu Giang",0310000001,Sổ cũ trang 3,KH-001
+Nguyễn Thị B,0901110002,Trại vừa,"Ấp 2, Xã Tân Phú, Cần Thơ",,Sổ cũ trang 3,KH-002
+Phạm Văn C,0901110003,Hộ nhỏ,"Khóm 4, P. An Phú, Cần Thơ",,Sổ cũ trang 4,KH-003
+Lê Thị D,0901110004,Trại lớn,"QL1A, Xã Thới Lai, Cần Thơ",0310000004,,KH-004
+Đặng Văn E,0901110005,Đại lý cấp 2,"Chợ cám, P. Cái Răng, Cần Thơ",,,KH-005
+Hoàng Thị F,0901110006,Trại vừa,"Ấp 3, Xã Đông Phú, Hậu Giang",,Trả dần theo vụ,KH-006
+Ngô Văn G,0901110007,Hộ nhỏ,"Khóm 2, P. Thốt Nốt, Cần Thơ",,,KH-007
+Bùi Thị H,0901110008,Trại lớn,"Ấp Ba Xã Vĩnh Trụ, Long An",0310000008,,KH-008
+Đỗ Văn I,0901110009,Trại vừa,"Ấp 5, Xã Nhơn Nghĩa, Cần Thơ",,Sổ cũ trang 5,KH-009
+Trương Thị K,0901110010,Hộ nhỏ,"Khóm 6, P. Bình Thủy, Cần Thơ",,,KH-010
