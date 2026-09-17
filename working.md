@@ -8,7 +8,10 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   ```
   b48d723b81f515d12f0dc7860dcd5d050d93fdf6 feat(feed_dealer): P1F legal/livestock/batch-ops + tabBatch cleanup
   ```
-  19 file, +1583/−17.
+  19 file, +1583/−17. Commit docs kèm theo (cũng dán từ `git log -1 --format='%H %s'`):
+  ```
+  caeb8e2a660a1af46af85dd86005b98d40a47ebf docs: đóng P1F + 5.17, ghi P1E BLOCKED và nợ kỹ thuật P0.5
+  ```
   • **VIỆC 1** (tự quyết): FIFO **bỏ qua** `Payment Entry.references` — đã grep xác nhận code không hề
     đọc field này; giả định vận hành "kế toán để trống references, để FIFO theo lứa tự quyết" ghi vào
     `design.md` D19 + comment trong code; thêm **cảnh báo không chặn** khi `references` khác rỗng.

@@ -9,9 +9,11 @@ Site: ERPNext v16 (frappe_docker trên Mac, site `frontend`), app `feed_dealer`
 
 ```
 b48d723b81f515d12f0dc7860dcd5d050d93fdf6 feat(feed_dealer): P1F legal/livestock/batch-ops + tabBatch cleanup
+caeb8e2a660a1af46af85dd86005b98d40a47ebf docs: đóng P1F + 5.17, ghi P1E BLOCKED và nợ kỹ thuật P0.5
 ```
 
-19 file, +1583/−17. (Hash lấy từ output thật của lệnh, không từ trí nhớ.)
+Commit code: 19 file, +1583/−17. Commit docs: 8 file, +304/−21. (Cả hai hash lấy từ output thật
+của `git log -1`, không từ trí nhớ.)
 
 ## VIỆC 1 — FIFO vs Payment Entry `references` (tự quyết theo hướng an toàn)
 
