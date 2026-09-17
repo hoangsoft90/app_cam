@@ -276,3 +276,17 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
 27. `/tmp` của sandbox **mất mỗi phiên** ⇒ cầu nối aki-MCP không còn: dựng lại
     `/tmp/aki-state/credentials.json` (từ chat) rồi `python3 .agent/akimcp.py export` để ghi
     `/tmp/mcp_access_token` + `/tmp/mcp_env.sh` cho `bench.py`/`mac.py`/`push_to_mac.py` dùng lại.
+    **Trước khi hỏi user**: kiểm `.env` — repo này đã có sẵn `AKI_Passphrase`,
+    `AKI_OAuth_Client_ID`, `AKI_OAuth_Client_Secret` (`.env` đã gitignore), nên dựng lại được ngay.
+28. **DDL / cài dữ liệu một lần ⇒ viết thành Frappe `patch`** (`patches.txt` +
+    `patches/v1_0/<tên>.py`), không chạy SQL tay: idempotent, có trong `tabPatch Log`, hiện rõ trong
+    log migrate. Luôn `bench backup` TRƯỚC, và để patch **tự chặn** khi thao tác sẽ mất dữ liệu
+    (ví dụ: cột còn giá trị thì throw, không drop).
+29. Field `reqd=1` mà chỉ người mới điền được (vd `period_from`/`period_to` của phiếu xác nhận nợ)
+    phải có **default suy từ dữ liệu** ở đường API — không dùng hằng số vô nghĩa, nếu không API
+    không tạo nổi document (lỗi `MandatoryError` mới lộ ra khi chạy thật).
+30. Tự động hoá TIỀN: **"bảo toàn hơn là làm được"** — khi một cột tiền DERIVED không thể tách
+    trung thực (paid/returned/offset đến từ các allocation), phải TỪ CHỐI thao tác kèm lý do rõ
+    ("tất toán khoản nợ đó trước"), tuyệt đối không bịa một con số trông hợp lý.
+31. Cảnh báo (cảnh báo ≠ chặn) cũng phải có test: assert CẢ HAI vế — cảnh báo BẬT **và** nghiệp vụ
+    vẫn chạy tiếp; nếu ai đó đổi cảnh báo thành `throw`, test phải đỏ.

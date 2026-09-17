@@ -249,6 +249,50 @@ where the derived figure has exactly one writer, and extends it in four decision
    (`before_cancel`), note-cancel is allowed via `cancel_credit_note` (`ignore_links`, the P1B
    pattern) and reopens the debts through the derived-field path.
 
+### D19 — The FIFO layer ignores Payment Entry `references`, and warns when it is set
+
+`feed_dealer.events.payment_entry` reads `doc.paid_amount` / `doc.party` and nothing else: it never
+consults `references`, so ERPNext's own invoice-level allocation and our batch-level FIFO are two
+independent statements about the same cash. **Operating assumption (confirmed 2026-09-17):** the
+accountant leaves `references` EMPTY on a customer receipt and lets FIFO decide which batch debt the
+money settles. Because other paths (the Desk's *Get Payment* button, imports, a Phase-2 API) fill it
+in, the hook now raises a **non-blocking** warning (`frappe.msgprint`) whenever `references` is
+non-empty: blocking would strand real cash over attribution wording, and the allocation we write is
+derived from Batch Debt, so it stays internally consistent either way. AR reconciliation (D20/P1G)
+stays the source of truth for the money itself. Regression: `p1b T10` proves the warning fires AND
+the allocation still happens.
+
+### D20 — Livestock offset is a Journal Entry, and `offset_amount` is derived like the other money columns
+
+When a farmer sells animals back, the dealer raises a Purchase Invoice (payable) and nets it against
+what the farmer owes with one Journal Entry: **Dr Accounts Payable / Cr Accounts Receivable**, one
+credit line per batch-debt slice (oldest due first, the P1B FIFO rule), each line carrying the new
+custom field `batch_debt` on Journal Entry Account. Debits equal credits by construction, so ERPNexT's
+own balance check — not our assertion — is what guarantees double-entry. `Batch Debt.offset_amount` is
+DERIVED (`_offset_sum`, mirroring `_returned_sum`) giving one formula:
+
+    outstanding = allocated - paid - returned - offset
+
+The offset is **capped at what is owed** (`min(invoice.grand_total, SUM(open debt of that batch))`), so
+it can never produce a negative debt or inflate P1C's available credit limit (which sums outstanding);
+the uncapped remainder stays payable in cash. Cancelling the JE drops its lines from the sum and the
+debt reopens. Regression: `p1f T6/T7`, both mutation-checked (removing the cap turned T7 red).
+
+### D21 — Consent policy: warn + gate marketing; the debt slip ships a print format
+
+P1F's legal pair, with the policy choices made explicit because the prompt allowed either:
+
+1. **Consent is append-only and the app warns instead of blocking.** A withdrawal *appends* a
+   withdrawn record; a withdrawn record cannot be revived (`p1f T2`). The enforceable gate is
+   `marketing_allowed(customer)`, which Phase 3+ must call before sending ZNS/SMS. Customer creation
+   only *warns* (`p1f T1` covers grant → withdraw → both gates false): a hard stop would break the
+   import/API paths that have no consent yet, which is exactly the migration the project depends on.
+2. **The Debt Confirmation Slip states, it does not own.** `debt_details` + `total_confirmed_debt` are
+   rebuilt from the customer's open Batch Debts; the app installs the Jinja print format `Phiếu xác
+   nhận nợ (feed_dealer)` through an idempotent patch (never touching a user's own format), and
+   `confirmed_by_customer` without an attached `signed_photo` is refused — the signature IS the
+   evidence.
+
 ## Risks / Trade-offs
 
 - [Deploying to a live site that other people and apps are using] → Every master step is create-if-absent and name-resolved; nothing is renamed, re-parented or deleted; the only writes are new DocTypes, new roles/masters and acceptance fixtures named `P0-ACCEPT…`, which `cleanup()` removes.

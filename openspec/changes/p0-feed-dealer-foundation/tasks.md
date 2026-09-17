@@ -76,11 +76,14 @@ reason recorded so the decision is not silently lost.
   `module: Stock` with its own fields (`batch_id`, `item`, `batch_qty`, `stock_uom`, …) and
   `autoname: field:batch_id`; a name-collision sweep against `frappe`/`erpnext` source found no
   remaining collision.
-- [ ] 5.17 Decide what to do about the 12 orphan columns left on ERPNext's `tabBatch`
-  (`customer`, `animal_type`, `start_date`, `expected_end_date`, `quantity`, `start_weight`,
-  `current_weight`, `status`, `split_operation`, `has_been_split`, `total_debt`, `notes`).
-  Frappe restored the metadata but does not drop columns. Dropping them is irreversible DDL on a
-  live site, so it is left to the user to approve.
+- [x] 5.17 Drop the 12 orphan columns left on ERPNext's `tabBatch` (`customer`, `animal_type`,
+  `start_date`, `expected_end_date`, `quantity`, `start_weight`, `current_weight`, `status`,
+  `split_operation`, `has_been_split`, `total_debt`, `notes`). User-approved 2026-09-17 and done as
+  a Frappe patch (`patches/v1_0/drop_orphan_batch_columns`), not a hand-run ALTER.
+  *Evidence:* DB backup first (`20260917_090031-frontend-database.sql.gz`, 2.2 MiB); patch printed
+  `tabBatch rows=0, orphan columns present=12, columns holding data=none` and dropped all 12;
+  `information_schema` then reported 30 columns / 0 orphans; a re-run printed `no orphan column
+  left - nothing to do`; migrate EXIT 0, no orphan DocType line; regression green.
 
 ## 6. hooks.py
 
@@ -264,3 +267,47 @@ keeps describing what actually shipped.
   *Evidence:* `P1D T7` — a debt owing 400,000 after a 600,000 payment refused a 500,000 return
   with the right message; T2 now asserts its refusal REASON (`chưa được trả`) instead of accepting
   any exception; mutation run (both guard calls disabled) → T7 red 6/7, restored → 7/7.
+- [x] 12.9 Review follow-ups from the user's last pass: Payment Entry `references` now warns (never
+  blocks) when it is non-empty, because the FIFO layer ignores ERPNext's invoice pick (design.md
+  D19). *Evidence:* `p1b T10` — `ACC-PAY-…` carried 1 reference row, warned, and still allocated
+  400,000 of the receipt (outstanding 600,000), so turning the warning into a `throw` breaks it.
+
+## 13. Phase 1 — P1F (Legal + Livestock Offset + Batch Split/Merge)
+
+- [x] 13.1 `Data Processing Consent` implemented: append-only records, `withdraw()` API, and the
+  `has_active_consent` / `marketing_allowed` gates; `Customer.validate` warns (policy: warn, do not
+  block — design.md D21). *Evidence:* `P1F T1` (no record → both gates false; grant → true;
+  withdraw → false with 2 records kept) and `T2` (a withdrawn record cannot be revived).
+- [x] 13.2 `Debt Confirmation Slip`: rows + total rebuilt from the customer's open Batch Debts, the
+  Jinja print format `Phiếu xác nhận nợ (feed_dealer)` installed by patch, and
+  `confirmed_by_customer` refused without `signed_photo`. *Evidence:* `P1F T3` — 2 rows, total
+  1,200,000, rendered HTML contains the customer and the total, unsigned confirm refused.
+- [x] 13.3 Livestock offset: Purchase Invoice + double-entry Journal Entry (Dr AP / Cr AR, one credit
+  line per debt slice carrying the new custom field `batch_debt` on Journal Entry Account), netted
+  into the new DERIVED `offset_amount` and capped at what is owed. *Evidence:* `P1F T6` (balanced at
+  700,000, debt 1,000,000 → 300,000) and `T7` (1,500,000 PI vs 1,000,000 debt → netted 1,000,000,
+  500,000 stays payable; cancelling the JE reopens the debt). Mutation: cap disabled → T7 red.
+- [x] 13.4 `Batch Operation` split/merge/reallocate: exact debt conservation, target batches linked
+  back to the parent, sources released (cancelled) and marked `has_been_split`; a slice that already
+  carries payment/return/offset is REFUSED. *Evidence:* `P1F T4` (1,000,000 → 600,000 + 400,000) and
+  `T5` (part-paid debt refused with the right message, debt untouched). Mutation: guard disabled →
+  T5 red.
+- [x] 13.5 Regression + generator integrity: P0 9/9, P1A 8/8, P1B 10/10, P1C 10/10, P1D 7/7,
+  P1F 7/7 — all `ALL PASS`; `gen_feed_dealer.py --check` 58/58 matching disk (4 new controllers
+  embedded: consent, debt slip, livestock sale, batch operation).
+- [x] 13.6 Commit P1F + the tabBatch cleanup + the `references` warning.
+  *Evidence:* `b48d723b81f515d12f0dc7860dcd5d050d93fdf6 feat(feed_dealer): P1F legal/livestock/
+  batch-ops + tabBatch cleanup` (19 files, +1583/−17) — commit hash copied from `git log -1`.
+- [ ] 13.7 NOT DONE in this pass, by design: the 7 Desk reports of P1G (`Nợ theo lứa`, `Nợ quá hạn`,
+  `Phân bổ thanh toán`, `Dòng tiền 30-60-90`, `Lời/Lỗ theo lứa`, `Hạn mức tín dụng`, `Nhật ký phê
+  duyệt`) and the Phase-1 Exit Gate checklist. The AR-vs-Batch-Debt integrity script is described in
+  `next.md` as the next step.
+
+## 14. Phase 1E — E-Invoice: BLOCKED (recorded, not faked)
+
+- [ ] 14.1 BLOCKED — no sandbox provider account. `Feed Dealer Settings` has no provider/API-URL/
+  tax-code fields and `.env` carries only `ERPNEXT_*` + `AKI_MCP_URL`, so there is nothing to call and
+  nothing to log against. Per the user's instruction, no mock provider was written: a mock would make
+  the phase look DONE while nothing about the real NĐ-123 flow is verified. Needs from the user: a
+  provider choice (VNPT / Viettel / MISA), sandbox credentials, and the company tax code.
+  See `result_P1E_BLOCKED_2026-09-17.txt`.

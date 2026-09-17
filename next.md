@@ -15,17 +15,31 @@
 | 9 | P1A: Sales Invoice → Batch Debt (và vá idempotency theo nhóm thuế) | `TOTAL: 6 PASS: 6 FAIL: 0` (T1–T6) |
 | 10 | P1B: Payment Entry → Payment Allocation FIFO + cancel đảo ngược | `TOTAL: 6 PASS: 6 FAIL: 0` → `P1B ACCEPTANCE: ALL PASS` |
 
-## Sắp tới — ngắn hạn (chờ quyết định của user)
+## ⚠️ NỢ KỸ THUẬT BẮT BUỘC TRƯỚC GO-LIVE
 
-1. **[?] Drop 12 cột rác trên `tabBatch`** — script đã chuẩn bị, DDL không hoàn tác → cần duyệt
-2. **[x] Commit P1C** — đã duyệt, commit `7c62129`
+- **P0.5 (`prompt_P0_5_migration.md`) — import nợ đầu kỳ — CHƯA LÀM.** Theo `00_PROMPT_CHAIN.md`,
+  P1A lẽ ra phải đứng sau P0.5 DONE; dự án đã bỏ qua bước đó (chấp nhận được vì hiện chỉ test trên
+  dữ liệu giả, `is_opening_balance` + `opening_journal_entry` đã có sẵn trên Batch Debt).
+  **Không được go-live với dữ liệu khách hàng thật khi chưa chạy prompt P0.5**: chưa có đường
+  import nợ cũ ⇒ Batch Debt sẽ thiếu toàn bộ số dư lịch sử, và mọi con số AR-vs-Batch-Debt ở P1G
+  sẽ lệch đúng bằng phần nợ cũ chưa nhập.
+
+## Sắp tới — ngắn hạn
+
+1. **[ ] P1G** (báo cáo + integrity + Exit Gate) — việc kế tiếp đúng thứ tự chain:
+   - 7 báo cáo Desk: Nợ theo lứa, Nợ quá hạn, Phân bổ thanh toán, Dòng tiền 30-60-90,
+     Lời/Lỗ theo lứa, Hạn mức tín dụng, Nhật ký phê duyệt (stub OK)
+   - **Script integrity**: dataset 50–100 giao dịch ngẫu nhiên (SO→SI→PE→return→offset) rồi so
+     `SUM(Batch Debt outstanding) == AR` (tolerance định nghĩa được) — đây cũng chính là chỗ verify
+     bằng số liệu thật cho VIỆC 1 (FIFO bỏ qua `references`): nếu hai cơ chế phân bổ lệch nhau, con số
+     AR-vs-Batch-Debt sẽ lộ ra chứ không im lặng
+   - Checklist DoD Phase 1 (7 tiêu chí) + tài khoản Manager/Staff/Driver + backup documented
+2. **[!] P1E e-invoice = BLOCKED** — cần provider (VNPT/Viettel/MISA) + credential sandbox + mã số
+   thuế + quy ước NĐ 123 (Cancel/Adjust/Replace). Xem `result_P1E_BLOCKED_2026-09-17.txt`
 3. **[?] Hành vi hạn mức đã chốt** (xem checklist.md mục D): chặn đơn nháp vượt hạn mức **ngay lúc
-   tạo** (theo v2.2 MUST-3) — nếu bạn muốn hành vi theo prompt cũ (chỉ chặn lúc submit) thì nói,
-   tôi đổi và giữ nguyên test hai phía
-4. **P0.5** (import nợ đầu kỳ) hoặc **P1D** (trả hàng → `returned_amount`) là phase kế tiếp hợp lý;
-   P1D sẽ chạm `calculate_derived_fields` nên làm khi P1C đã ổn định như hiện tại
-5. (Tuỳ chọn) Dọn fixture acceptance: `bench execute feed_dealer.setup.p1c_acceptance.cleanup`
-   (mọi bộ `run()` đều tự dọn trước khi chạy)
+   tạo** (theo v2.2 MUST-3) — nếu muốn theo prompt cũ (chỉ chặn lúc submit) thì nói, tôi đổi
+4. **[x] Drop 12 cột rác `tabBatch`** — đã làm 2026-09-17 (patch + backup + verify)
+5. (Tuỳ chọn) Dọn fixture acceptance: mọi bộ `run()` đều tự dọn trước khi chạy, không cần tay
 
 ## Roadmap phase tiếp theo
 
@@ -34,9 +48,11 @@
 | **P0.5** | Import nợ đầu kỳ, tạo `opening_journal_entry`, import trại/lứa | P0 ✓ |
 | **P1A** | ✅ Sales Invoice → Batch Debt theo lứa (kể cả nhiều nhóm thuế/lứa); cascade cancel có bảo vệ `paid_amount > 0` | P0 ✓ |
 | **P1B** | ✅ Payment Entry → Payment Allocation FIFO; cancel đảo ngược. Còn: phân bổ thủ công, nhánh JE cho nợ đầu kỳ, unreconcile | P1A ✓ |
-| **P1C** | Credit Score + hạn mức theo tier, chặn đơn vượt hạn | P1B |
-| **P1D** | Sales Return Request → credit note → chỉnh nợ | P1B |
-| **P1E–G** | Batch Operation tách/gộp; Debt Confirmation Slip; Outbreak Alert (cần DocType mới) | P1B |
+| **P1C** | ✅ Credit Score + hạn mức theo tier, chặn đơn vượt hạn (commit `7c62129`) | P1B ✓ |
+| **P1D** | ✅ Sales Return Request → credit note thật → `returned_amount` DERIVED (commit `c5152dd`) | P1B ✓ |
+| **P1E** | ⛔ BLOCKED: e-invoice VN — cần sandbox provider + mã số thuế (không mock) | P1A ✓ |
+| **P1F** | ✅ Consent + Debt Confirmation Slip (print format) + Livestock offset (JE) + Batch tách/gộp bảo toàn nợ (commit `b48d723`) | P1A ✓ |
+| **P1G** | ⏳ Tiếp theo: 7 báo cáo Desk + script AR vs Batch Debt + Exit Gate Phase 1 | P1A–P1F (P1E blocked, phần e-invoice không chặn báo cáo) |
 | **P2/P4** | App nhân viên (Flutter) + Zalo Mini App nông dân | P1A–B |
 | **P3** | AI: kill switch vận hành, voice→action, Action Item (read-only posture) | P1 + config |
 

@@ -1,0 +1,81 @@
+# RESULT — VIỆC 1 + VIỆC 2 + P1F (Legal / Livestock Offset / Batch Split-Merge)
+
+Ngày: 2026-09-17 04:30 (giờ local)
+Site: ERPNext v16 (frappe_docker trên Mac, site `frontend`), app `feed_dealer`
+
+## Status: DONE (P1F) — kèm 2 việc tự quyết (VIỆC 1, VIỆC 2) đã xong
+
+## Commit (dán nguyên văn từ `git log -1 --format='%H %s'`)
+
+```
+b48d723b81f515d12f0dc7860dcd5d050d93fdf6 feat(feed_dealer): P1F legal/livestock/batch-ops + tabBatch cleanup
+```
+
+19 file, +1583/−17. (Hash lấy từ output thật của lệnh, không từ trí nhớ.)
+
+## VIỆC 1 — FIFO vs Payment Entry `references` (tự quyết theo hướng an toàn)
+
+- **Xác nhận giả định**: `feed_dealer.events.payment_entry` chỉ đọc `paid_amount`/`party`, **không hề**
+  đọc `doc.references` (grep xác nhận: không có tham chiếu nào). Vậy kế toán để trống `references`
+  và FIFO theo Batch Debt tự quyết định phân bổ theo lứa — đã ghi vào `design.md` **D19** + comment
+  trong code.
+- **Cảnh báo không chặn** (đúng yêu cầu): khi PE có `references` khác rỗng → `frappe.msgprint`
+  (indicator cam, `alert=True`) nêu rõ hai cơ chế có thể kể hai câu chuyện khác nhau cho cùng một
+  khoản tiền, và khuyên để trống.
+- **Bằng chứng**: `p1b T10` (mới) — `ACC-PAY-2026-00302` có 1 dòng reference, **cảnh báo đã bật** và
+  **vẫn phân bổ 400.000** (outstanding 600.000). Nghĩa là nếu ai đó đổi cảnh báo thành `throw`, T10
+  đỏ ngay (tính chất "không chặn" được test khoá lại).
+- Regression P1B: **10/10 ALL PASS** (T1–T10).
+
+## VIỆC 2 — Drop 12 cột rác trên `tabBatch` (đã làm, có backup)
+
+- **Backup trước khi DDL**: `bench --site frontend backup` →
+  `20260917_090031-frontend-database.sql.gz` (**2.2 MiB**).
+- **Thực thi bằng Frappe patch** (`patches/v1_0/drop_orphan_batch_columns`, đã ghi vào `patches.txt`)
+  thay vì ALTER tay — idempotent, và **tự chặn nếu còn dữ liệu**:
+  ```
+  [drop_orphan_batch_columns] tabBatch rows=0, orphan columns present=12, columns holding data=none
+  [drop_orphan_batch_columns] dropped 12 column(s): ['animal_type', 'current_weight', 'customer',
+    'expected_end_date', 'has_been_split', 'notes', 'quantity', 'split_operation', 'start_date',
+    'start_weight', 'status', 'total_debt']
+  ```
+- **Verify**: `information_schema` → `tabBatch` còn **30 cột**, orphan còn **0**; chạy lại patch →
+  `no orphan column left - nothing to do`; `migrate` EXIT 0, không có dòng `Orphaned DocType(s)`;
+  patch đã có trong `tabPatch Log` (chạy qua migrate, không chỉ tay).
+- `alpine:3.19`: **không đụng** (theo yêu cầu).
+
+## P1F — 4 phần, tất cả có test thật trên site
+
+| # | Nội dung | Bằng chứng |
+|---|---|---|
+| 1 | Consent (append-only + `withdraw` API + `marketing_allowed`) | `T1` grant → marketing True; withdraw → False, **2 record được giữ**; `T2` không thể bật lại record đã rút |
+| 2 | Debt Confirmation Slip + Print Format Jinja | `T3` 2 dòng, tổng 1.200.000, HTML render có khách + tổng; "đã xác nhận" thiếu ảnh chữ ký → chặn |
+| 3 | Livestock offset (PI + JE Dr AP/Cr AR) | `T6` JE cân bằng 700.000, gán đúng 1 khoản nợ, outstanding 1.000.000 → 300.000; `T7` PI 1.500.000 vs nợ 1.000.000 → chỉ cấn trừ 1.000.000, còn 500.000 phải trả; huỷ JE → nợ mở lại |
+| 4 | Batch Operation tách/gộp | `T4` 1.000.000 → 600.000 + 400.000 (nguồn bị cancel, target trỏ `parent_batch`, có `has_been_split`); `T5` nợ đã có thanh toán → **từ chối tách** |
+
+- **Mutation-check** (2 guard tiền mới): tắt `_touched` (tách lứa) + tắt cap cấn trừ →
+  **T5 và T7 đỏ (5/7)** đúng message mong đợi; khôi phục (grep `MUTATION-OFF` = 0) → **7/7 ALL PASS**.
+- **Regression đầy đủ**: P0 **9/9**, P1A **8/8**, P1B **10/10**, P1C **10/10**, P1D **7/7**, P1F **7/7**
+  — tất cả `ALL PASS`. `gen_feed_dealer.py --check` → **58/58 khớp disk**.
+
+## Quyết định đã ghi (design.md)
+
+- **D19** — FIFO bỏ qua `references`, cảnh báo khi nó khác rỗng (lý do + giả định vận hành).
+- **D20** — công thức `outstanding = allocated − paid − returned − offset`; offset là JE double-entry,
+  cap tại số nợ còn lại, `offset_amount` là DERIVED (một nguồn sự thật).
+- **D21** — consent: cảnh báo không chặn + gate marketing; phiếu xác nhận nợ "states, does not own".
+
+## Lệnh tái lập
+
+```bash
+python3 .agent/gen_feed_dealer.py && python3 .agent/gen_feed_dealer.py --check
+python3 .agent/push_to_mac.py apps/feed_dealer /Users/hoang/htdocs/erpnext/app_cam feed_dealer
+python3 .agent/bench.py --site frontend backup          # trước mọi DDL
+python3 .agent/bench.py --site frontend execute feed_dealer.setup.p1f_acceptance.run
+```
+
+## Còn lại (không giả vờ xong)
+
+- **P1E e-invoice**: BLOCKED thật (thiếu sandbox provider) — `result_P1E_BLOCKED_2026-09-17.txt`.
+- **P1G**: chưa làm trong lượt này — 7 báo cáo Desk + script đối chiếu AR vs Batch Debt + Exit Gate
+  Phase 1. Ghi rõ trong `tasks.md` 13.7 và `next.md`.

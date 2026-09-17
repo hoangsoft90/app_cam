@@ -1,0 +1,42 @@
+# RESULT — P1E E-Invoice (VN compliance)
+
+Ngày: 2026-09-17 (giờ local)
+Site: ERPNext v16 (frappe_docker trên Mac, site `frontend`), app `feed_dealer`
+
+## Status: BLOCKED
+
+## Căn cứ (đã kiểm tra, không suy đoán)
+
+1. Prompt P1E ghi precondition: **"P1A DONE (SI submit ổn định). Sandbox provider OK."** — P1A DONE ✓,
+   nhưng **sandbox provider KHÔNG có**.
+2. `Feed Dealer Settings` (single) hiện có đúng 11 field, **không có** field nào cho e-invoice:
+   `default_company, default_warehouse, late_payment_interest_rate, late_payment_mode,
+   credit_limit_percent_dong/bac/vang/kim_cuong, voice_recording_retention_days, ai_model_name,
+   stt_provider` → chưa có `provider`, `api_url`, `tax_code`, credentials.
+3. `.env` chỉ có `ERPNEXT_URL`, `ERPNEXT_API_KEY`, `ERPNEXT_API_SECRET`, `AKI_MCP_URL` → **không có**
+   credential của VNPT / Viettel / MISA.
+4. DocType `E-Invoice Log` đã tồn tại (skeleton P0) — hạ tầng ghi log sẵn sàng, nhưng không có
+   provider để gọi nên không thể chứng minh bất kỳ điều gì ở acceptance 1–3.
+
+## Cần từ user để mở khoá
+
+| # | Cần gì | Ghi chú |
+|---|---|---|
+| 1 | Chọn provider: **VNPT / Viettel / MISA** (hoặc provider khác bạn đang dùng) | Quyết định này chi phối toàn bộ tích hợp |
+| 2 | Tài khoản **sandbox** + base URL API + credential (username/password hoặc API key/secret theo provider) | Không cần ghi vào chat nếu bạn muốn tự đặt vào `.env` — chỉ cần tên biến, tôi sẽ đọc từ `.env` |
+| 3 | **Mã số thuế** công ty + thông tin phát hành (mẫu số/ký hiệu hoá đơn nếu có) | Cần cho payload phát hành |
+| 4 | Quy ước NĐ 123 bạn muốn áp dụng khi SI bị huỷ/điều chỉnh: **Cancel** bao giờ, **Adjust** bao giờ, **Replace** bao giờ | Tôi sẽ viết thành rule tường minh trong code (không đoán luật) |
+
+## Vì sao không làm mock để "cho xong"
+
+Yêu cầu của user: *"Không tự chế mock provider để 'cho xong' P1E — để BLOCKED rõ ràng còn hơn giả vờ
+xong."* Một mock sẽ khiến trạng thái hiển thị DONE trong khi **không có gì** về luồng phát hành/huỷ
+hoá đơn thật (NĐ 123) được kiểm chứng — đúng loại "báo xong nhưng thực tế không đổi gì" mà dự án này
+đang cố loại bỏ.
+
+## Việc đã/không làm trong lượt này
+
+- KHÔNG thêm field/credential giả vào Settings, KHÔNG tạo provider interface dở dang.
+- Đã ghi trạng thái + điều kiện mở khoá vào `tasks.md` mục 14 và `next.md`.
+- Phase kế tiếp không phụ thuộc e-invoice (P1F) đã được làm song song và PASS (xem
+  `result_2026-09-17_0430_P1F.txt`).

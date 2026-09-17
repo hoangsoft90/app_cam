@@ -4,6 +4,33 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Đang làm
 
+- [2026-09-17] **VIỆC 1 + VIỆC 2 + P1F xong** — commit (dán nguyên văn từ `git log -1 --format='%H %s'`):
+  ```
+  b48d723b81f515d12f0dc7860dcd5d050d93fdf6 feat(feed_dealer): P1F legal/livestock/batch-ops + tabBatch cleanup
+  ```
+  19 file, +1583/−17.
+  • **VIỆC 1** (tự quyết): FIFO **bỏ qua** `Payment Entry.references` — đã grep xác nhận code không hề
+    đọc field này; giả định vận hành "kế toán để trống references, để FIFO theo lứa tự quyết" ghi vào
+    `design.md` D19 + comment trong code; thêm **cảnh báo không chặn** khi `references` khác rỗng.
+    Bằng chứng `p1b T10`: PE có 1 dòng reference → cảnh báo bật **và vẫn phân bổ 400.000**.
+  • **VIỆC 2** (tự quyết, bạn đã duyệt DDL): backup `20260917_090031-frontend-database.sql.gz`
+    (2.2 MiB) trước khi ALTER → drop 12 cột rác `tabBatch` bằng **Frappe patch** idempotent
+    (`patches/v1_0/drop_orphan_batch_columns`, tự chặn nếu còn dữ liệu): in ra
+    `rows=0, columns holding data=none` rồi dropped 12; verify `tabBatch` còn 30 cột / 0 orphan;
+    chạy lại → "nothing to do"; migrate EXIT 0, không có dòng Orphaned DocType. `alpine:3.19` không đụng.
+  • **P1F** (4 phần, 7/7 PASS): consent append-only + gate `marketing_allowed`; Debt Confirmation Slip
+    (rows/tổng suy từ Batch Debt) + Print Format Jinja cài bằng patch; livestock offset = Purchase
+    Invoice + JE double-entry (Dr AP / Cr AR, 1 dòng credit/khoản nợ) → `offset_amount` DERIVED, **cap
+    tại số nợ còn lại**; Batch Operation tách/gộp **bảo toàn nợ** và **từ chối** khoản đã có
+    thanh toán/trả hàng/cấn trừ. Mutation-check: tắt 2 guard tiền mới → **T5+T7 đỏ (5/7)**, khôi phục
+    → 7/7. Regression: P0 `9/9` · P1A `8/8` · P1B `10/10` · P1C `10/10` · P1D `7/7` · P1F `7/7`;
+    `gen_feed_dealer.py --check` 58/58. Quyết định: `design.md` D19/D20/D21, `tasks.md` mục 13 (đóng
+    luôn 5.17), chi tiết `result_2026-09-17_0430_P1F.txt`.
+  • **P1E = BLOCKED thật** (không chế mock): `Feed Dealer Settings` chưa có field provider/API URL/
+    tax code, `.env` không có credential VNPT/Viettel/MISA → `result_P1E_BLOCKED_2026-09-17.txt`
+    liệt kê 4 thứ cần từ user. `tasks.md` mục 14.
+  • **P1G chưa làm** trong lượt này (7 báo cáo Desk + script đối chiếu AR vs Batch Debt + Exit Gate
+    Phase 1) — là việc kế tiếp, và cũng là nơi verify bằng số liệu thật cho VIỆC 1 (xem `next.md`).
 - [2026-09-16] Change `p0-feed-dealer-foundation` — **P1D xong, đã commit `c5152dd`** (task 12.7).
   Bằng chứng (site thật, sau `clear-cache`): **P0 `9/9`, P1A `8/8`, P1B `9/9`, P1C `10/10`, P1D
   `7/7` — tất cả `ALL PASS`, exit 0**. P1D gồm: controller Sales Return Request/Sales Return Item

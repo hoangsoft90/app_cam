@@ -1,4 +1,4 @@
-# checklist.md — trạng thái công việc P0 + P1A/P1B (cập nhật 2026-09-16)
+# checklist.md — trạng thái công việc P0 → P1F (cập nhật 2026-09-17)
 
 Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` chưa làm · `[?]` cần hỏi lại user
 
@@ -48,7 +48,16 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
 
 ## C. Chưa làm / cần làm tiếp
 
-- [ ] **Drop 12 cột rác trên `tabBatch`** (xem FAQ #1) — chờ user duyệt vì DDL không hoàn tác trên site thật
+- [x] **Drop 12 cột rác trên `tabBatch`** — user duyệt 2026-09-17, đã làm bằng patch idempotent sau
+      khi backup DB (`20260917_090031-frontend-database.sql.gz`); `tabBatch` 30 cột / 0 orphan; P0–P1F
+      regression xanh sau đó (tasks.md 5.17, `result_2026-09-17_0430_P1F.txt`)
+- [x] **P1D** (Sales Return → credit note → `returned_amount`) — commit `c5152dd`; 7/7 PASS
+- [x] **P1F** (Consent + Debt Slip + Livestock Offset + Batch Split/Merge) — commit `b48d723`; 7/7 PASS
+- [!] **P1E e-invoice = BLOCKED** — thiếu sandbox provider (VNPT/Viettel/MISA) + mã số thuế;
+      `result_P1E_BLOCKED_2026-09-17.txt` nêu đúng 4 thứ cần user cấp. ĐÚNG thứ tự chain: dừng đây,
+      không nhảy phase, không viết mock provider
+- [ ] **P1G** (7 báo cáo Desk + script đối chiếu AR vs Batch Debt + Exit Gate Phase 1) — việc kế tiếp
+- [ ] **P0.5 (import nợ đầu kỳ) — BẮT BUỘC trước go-live với dữ liệu thật** (xem `next.md`)
 - [x] **Commit ban đầu** — đã làm: `eb75222` (P0+P1A+P1B), `0355d6b` (vá refund + khoá NULL),
       `0e89ce7` (bỏ track `__pycache__`)
 - [x] **Commit P1C** — đã duyệt + commit `7c62129` (task 11.9 đóng)
@@ -60,7 +69,7 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
 
 ## D. Cần hỏi lại user
 
-- [?] Drop cột rác trên `tabBatch`? (script sẵn, chỉ chạy khi duyệt)
+- [x] Drop cột rác trên `tabBatch`? → **đã duyệt và đã làm 2026-09-17** (patch + backup + verify)
 - [?] Commit ban đầu có thực hiện không? (acceptance #6 của prompt P0) → **đã xong, 4 commit**
       (`eb75222`, `0355d6b`, `0e89ce7`, `7c62129`), các file md root + result/handoff **có** nằm trong
       git. Acceptance #6 của prompt P0 coi như đóng.
@@ -71,4 +80,7 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
 - [?] **Warehouse "Main"**: prompt yêu cầu tạo, nhưng site thật đã có warehouse. Seeder đang CHỌN
       default_warehouse từ warehouse có sẵn (ưu tiên tên có "cám/cam") chứ KHÔNG tạo "Warehouse Main"
       mới. Giữ nguyên cách này, hay cần tạo warehouse riêng cho dự án?
-- [?] `alpine:3.19` trên máy này có được phép xoá luôn không?
+- [x] `alpine:3.19` → **user quyết: không đụng** (có trước dự án, không liên quan) — đóng câu hỏi này.
+- [?] P1E cần: provider (VNPT/Viettel/MISA), credential sandbox, mã số thuế công ty, và quy ước
+      NĐ 123 khi SI huỷ/điều chỉnh (Cancel vs Adjust vs Replace khi nào) — xem
+      `result_P1E_BLOCKED_2026-09-17.txt`
