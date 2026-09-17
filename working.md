@@ -4,7 +4,7 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Đang làm
 
-- [2026-09-16] Change `p0-feed-dealer-foundation` — **P1D xong, chờ duyệt commit** (task 12.7).
+- [2026-09-16] Change `p0-feed-dealer-foundation` — **P1D xong, đã commit `c5152dd`** (task 12.7).
   Bằng chứng (site thật, sau `clear-cache`): **P0 `9/9`, P1A `8/8`, P1B `9/9`, P1C `10/10`, P1D
   `7/7` — tất cả `ALL PASS`, exit 0**. P1D gồm: controller Sales Return Request/Sales Return Item
   (approve → credit note thật qua `make_return_doc`, qty âm + `sales_invoice_item` mapping),
@@ -25,7 +25,7 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   filter `''` khớp chính dòng hoá đơn gốc) và T2 assert **đúng lý do**. Bằng chứng: **P0 `9/9`,
   P1A `8/8`, P1B `9/9`, P1C `10/10`, P1D `7/7`** (T7 mới); mutation-check: tắt guard → T7 đỏ
   `6/7`, khôi phục → `7/7` và file sinh ra **byte-identical** với trước mutation. Cầu nối aki-MCP
-  phải dựng lại vì `/tmp` mất giữa phiên (đã ghi vào skill). Vẫn **chờ duyệt commit** (task 12.7).
+  phải dựng lại vì `/tmp` mất giữa phiên (đã ghi vào skill). **Đã commit `c5152dd`** (task 12.7).
   Chi tiết: `result_2026-09-17_0150.txt`, `design.md` D17 mục 4.
 - [2026-09-16] Change `p0-feed-dealer-foundation` — **P1C xong, đã commit `7c62129`** (task
   11.9), `openspec validate` → "is valid". App `feed_dealer` trên site ERPNext **v16** của user

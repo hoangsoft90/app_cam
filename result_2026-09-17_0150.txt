@@ -3,7 +3,7 @@
 Ngày: 2026-09-17 01:50 (giờ local)
 Site: ERPNext v16 (frappe_docker trên Mac, site `frontend`), app `feed_dealer`
 
-## Status: DONE (code + test xanh; CHỜ USER DUYỆT COMMIT — task 12.7)
+## Status: DONE (code + test xanh; đã commit `c5152dd` — task 12.7, user duyệt)
 
 ## Bối cảnh
 
@@ -76,8 +76,9 @@ python3 .agent/bench.py --site frontend --to-file /tmp/p1b.log execute feed_deal
 
 ## Commit
 
-- CHỜ DUYỆT (sales-return chạm tiền + đổi luật nghiệp vụ). Đề xuất message:
-  `fix(feed_dealer): P1D value guard on returns + enforce over-return on draft`
+- ĐÃ COMMIT `c5152dd` (user duyệt; sales-return chạm tiền + đổi luật nghiệp vụ):
+  `fix(feed_dealer): P1D value guard on returns + enforce over-return on draft` — 16 file,
+  +1518/−19 (gồm cả `p1d_acceptance.py` và 2 file result).
 
 ## Artifacts
 

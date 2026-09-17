@@ -254,7 +254,8 @@ keeps describing what actually shipped.
   (`credit_score`, `collateral` included) and refuses to stamp a generic skeleton over real code
   (guard smoke-tested).
 - [x] 12.7 Commit P1D.
-  *Evidence:* pending user approval — sales-return touches money; commit lands after sign-off.
+  *Evidence:* committed `c5152dd` after user sign-off (sales-return touches money, so the commit
+  waited for explicit approval); 16 files, +1518/−19.
 - [x] 12.8 Value guard on returns (review finding): `_validate_value_vs_outstanding` refuses a
   return whose value exceeds the debt's remaining outstanding — a part-paid debt could otherwise
   end with a NEGATIVE outstanding that also inflates the P1C credit limit. The over-return guard
