@@ -56,6 +56,8 @@ REQUIRED_DOCTYPES = (
 READ_ONLY_BATCH_DEBT_FIELDS = (
 	"paid_amount",
 	"returned_amount",
+	# P1F: netted by a submitted Journal Entry (livestock offset).
+	"offset_amount",
 	"outstanding_amount",
 	"status",
 	"overdue_days",

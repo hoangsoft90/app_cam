@@ -62,6 +62,10 @@ DERIVED_FIELDS = (
 	# silently dropped on write (measured: outstanding dropped by the return
 	# while returned_amount stayed 0 in the DB).
 	"returned_amount",
+	# P1F: `offset_amount` (livestock offset via Journal Entry) joined the derived
+	# set for the same reason as `returned_amount`: anything not listed here is
+	# computed correctly in memory and then silently dropped on write.
+	"offset_amount",
 	"outstanding_amount",
 	"overdue_days",
 	"late_payment_fee",
@@ -134,6 +138,28 @@ def on_submit(doc, method=None):
 				" is not a customer receipt"
 			)
 		}
+
+	if doc.get("references"):
+		# OPERATING ASSUMPTION (design.md D19): the accountant leaves `references`
+		# EMPTY on a customer receipt and lets this FIFO layer attribute the money
+		# to batches. `references` is ERPNext's own invoice-level allocation, which
+		# this layer deliberately does not read — so when it IS filled, the two
+		# mechanisms describe the same money differently. Warn, never block: a
+		# blocked receipt would strand real cash over attribution wording, and the
+		# allocation we write is DERIVED from Batch Debt, so it stays internally
+		# consistent either way (AR reconciliation remains the source of truth).
+		frappe.msgprint(
+			(
+				f"Payment Entry {doc.name} có {len(doc.references)} dòng 'references' "
+				f"(ERPNext đã chọn hoá đơn theo cách của nó). Phân bổ theo lứa (FIFO trên "
+				f"Batch Debt) KHÔNG dùng các dòng này — hai cơ chế có thể kể hai câu chuyện "
+				f"khác nhau cho cùng một khoản tiền. Kế toán nên để trống 'references' cho "
+				f"phiếu thu của khách, và để FIFO theo lứa tự quyết định phân bổ."
+			),
+			title="Cảnh báo: Payment Entry có 'references'",
+			indicator="orange",
+			alert=True,
+		)
 
 	existing = frappe.get_all(
 		"Payment Allocation",

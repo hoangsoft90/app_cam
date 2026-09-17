@@ -536,6 +536,54 @@ def _second_connection():
 		return None
 
 
+def check_references_warns_but_allocates():
+	"""T10: a receipt carrying `references` WARNS (never blocks) and still allocates FIFO.
+
+	ERPNext's Get-Payment button fills `references` with the invoice the accountant picked; our FIFO
+	layer ignores that list and attributes the money to batches (design.md D19). The guard is a
+	message on purpose — blocking a real receipt over attribution wording would strand cash. This
+	check proves BOTH halves: the warning fires AND the allocation still happens, so turning the
+	warning into a `throw` breaks the allocation assertion.
+	"""
+	inv, _batch_name, debt_name = _batched_invoice("T10", qty=10, rate=100_000)
+	messages = []
+	original = frappe.msgprint
+
+	def recorder(*args, **kwargs):
+		messages.append(f"{kwargs.get('title', '')}|{args[0] if args else ''}")
+
+	frappe.msgprint = recorder
+	try:
+		pe = frappe.get_doc(get_payment_entry("Sales Invoice", inv.name))
+		amount = 400_000.0
+		pe.paid_amount = amount
+		pe.received_amount = amount
+		pe.reference_no = f"{PREFIX} bank transfer"
+		pe.reference_date = pe.posting_date or nowdate()
+		if pe.references:
+			pe.references[0].allocated_amount = min(amount, flt(pe.references[0].outstanding_amount))
+		pe.insert(ignore_permissions=True)
+		pe.submit()
+	finally:
+		frappe.msgprint = original
+	frappe.db.commit()
+
+	if not pe.references:
+		raise AssertionError("fixture broken: get_payment_entry must fill references for this check")
+	warned = [msg for msg in messages if "references" in msg]
+	if not warned:
+		raise AssertionError(f"no warning about references was raised (messages: {messages})")
+	allocations = _allocations(pe.name)
+	if len(allocations) != 1 or flt(allocations[0].paid_amount) != 400_000:
+		raise AssertionError(f"the warning must not stop allocation: {allocations}")
+	if flt(_debt(debt_name).outstanding_amount) != 600_000:
+		raise AssertionError(f"debt should have 600,000 left, got {_debt(debt_name).outstanding_amount}")
+	return (
+		f"{pe.name} with {len(pe.references)} reference row(s) warned ({warned[0][:60]}…) and still "
+		f"allocated 400,000 to {debt_name} (outstanding 600,000)"
+	)
+
+
 CHECKS = (
 	("T1  partial payment", check_partial_payment),
 	("T2  full payment", check_full_payment),
@@ -546,6 +594,7 @@ CHECKS = (
 	("T7  refund does not allocate", check_refund_does_not_allocate),
 	("T8  unreconcile reverses", check_unreconcile_payment_reverses_allocations),
 	("T9  FIFO read locks rows", check_allocation_locks_debt_rows),
+	("T10 references warn, no block", check_references_warns_but_allocates),
 )
 
 

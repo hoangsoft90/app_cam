@@ -5,3 +5,5 @@
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
 feed_dealer.patches.v0_0_1.seed_masters
+feed_dealer.patches.v1_0.drop_orphan_batch_columns
+feed_dealer.patches.v1_0.install_print_formats

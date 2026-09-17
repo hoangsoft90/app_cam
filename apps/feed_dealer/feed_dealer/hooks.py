@@ -186,6 +186,17 @@ doc_events = {
 	"Feed Batch": {
 		"on_update": "feed_dealer.events.batch.on_update",
 	},
+	# P1F: a Journal Entry is how a livestock offset nets a farmer's purchase against
+	# their batch debt, so the JE hook is what makes Batch Debt follow that document
+	# (recalculate only — never cascade money). `Customer.validate` is the consent
+	# gate: a warning, not a block (policy documented in the consent controller).
+	"Journal Entry": {
+		"on_submit": "feed_dealer.events.journal_entry.on_submit",
+		"on_cancel": "feed_dealer.events.journal_entry.on_cancel",
+	},
+	"Customer": {
+		"validate": "feed_dealer.events.consent.on_customer_validate",
+	},
 }
 
 # Scheduled Tasks

@@ -34,6 +34,37 @@ def _returned_sum(debt_name):
 	return -flt(result[0].returned) if result else 0.0
 
 
+def _offset_sum(debt_name):
+	"""POSITIVE total netted against this debt by submitted Journal Entries (P1F).
+
+	Livestock offset: when a farmer sells animals back, the dealer raises a Purchase
+	Invoice (what we owe them) and nets it against what they owe us with a Journal
+	Entry -- Dr Accounts Payable / Cr Accounts Receivable. That JE CREDITS the
+	customer's receivable, so it belongs to the same "reduces the debt" family as a
+	payment, not to `returned_amount` (which is about goods coming back).
+
+	Attribution is explicit: the offset helper writes `batch_debt` onto the
+	receivable line of the JE (custom field on Journal Entry Account), so
+	credit - debit == the amount this debt was netted by.
+
+	Same one-source-of-truth rule as `_returned_sum`: nothing stores a second copy,
+	and cancelling the JE drops its rows from the SUM, so the debt reopens.
+	"""
+	if not debt_name:
+		return 0.0
+	result = frappe.get_all(
+		"Journal Entry Account",
+		filters={"batch_debt": debt_name, "docstatus": 1},
+		fields=[
+			{"SUM": "credit_in_account_currency", "as": "credit"},
+			{"SUM": "debit_in_account_currency", "as": "debit"},
+		],
+	)
+	if not result:
+		return 0.0
+	return flt(result[0].credit) - flt(result[0].debit)
+
+
 class BatchDebt(Document):
 	"""Allocation layer only.
 
@@ -73,8 +104,13 @@ class BatchDebt(Document):
 		# P1D: derived from submitted return-invoice lines (see `_returned_sum`).
 		# Stored POSITIVE; only this controller writes the field.
 		self.returned_amount = self._get_returned_from_credit_notes()
-		self.outstanding_amount = flt(self.allocated_amount) - flt(self.paid_amount) - flt(
-			self.returned_amount
+		# P1F: netted by a Journal Entry (livestock offset; see `_offset_sum`).
+		self.offset_amount = self._get_offset_from_journal_entries()
+		self.outstanding_amount = (
+			flt(self.allocated_amount)
+			- flt(self.paid_amount)
+			- flt(self.returned_amount)
+			- flt(self.offset_amount)
 		)
 		self.overdue_days = 0
 		self.late_payment_fee = 0
@@ -117,6 +153,12 @@ class BatchDebt(Document):
 			fields=[{"SUM": "paid_amount", "as": "total"}],
 		)
 		return flt(result[0]["total"]) if result else 0.0
+
+	def _get_offset_from_journal_entries(self):
+		"""P1F: POSITIVE total netted by submitted Journal Entries (see `_offset_sum`)."""
+		if self.is_new() or not self.name:
+			return 0.0
+		return _offset_sum(self.name)
 
 	def _get_returned_from_credit_notes(self):
 		"""P1D: POSITIVE total returned, derived from submitted credit-note lines.
