@@ -341,8 +341,51 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
     — push cả app (~140KB base64) bằng argv làm `subprocess` ném `OSError: [Errno 7] Argument list
     too long`. Ngoài ra `/tmp` mất giữa phiên → dựng lại cầu nối bằng `.agent/akimcp.py export`
     (đọc credential AKI_* từ `.env`, gitignored) thay vì hỏi lại chủ dự án.
-42. **Lỗi từ APP KHÁC cũng làm test của mình đỏ — đọc traceback trước khi nghi code mình.** Một lần
+42b. **`--to-file` KHÔNG đảm bảo thứ tự: gọi lệnh bench kế tiếp ngay sau đó là RACE.** Đã đo được:
+    `cleanup` còn đang xoá tài liệu thì `debug` đã chạy ⇒ nó đọc DB **đang bị xoá dở** (60 hoá đơn,
+    0 credit note, 0 offset, marker còn nguyên) và C9 báo "dataset thoái hoá". Tôi đã suýt kết luận
+    code mới tự gây lỗi — trong khi builder trên site sạch vẫn cho `returns=10, offsets=3`.
+    Cách xử lý: dùng `.agent/bench_wait.py <log> <bench args>` — nó **poll tới khi log có dòng
+    `=== EXIT n ===`** của chính lần chạy đó rồi mới trả về, rồi mới gọi lệnh tiếp theo.
+43. **So SỐ LIỆU giữa các lần chạy trước khi kết luận "code sai".** Dấu hiệu nhận ra bằng chứng bị
+    nhiễm: các con số lẽ ra độc lập với thay đổi của tôi (PA, ER) **giống hệt** lần trước, còn đúng
+    nhóm số liên quan bị mất sạch (RT/OF = 0) — tức DATASET khác, không phải logic khác. Chỉ sau khi
+    tái lập được thì mới được sửa code.
+44. **Fixture/dataset phải kiểm bằng SỐ ĐÚNG so với builder khai báo, không chỉ "đủ dòng".**
+    Một lần build chết giữa đường (crash ở app khác) để lại 1 Sales Order đã submit mà bộ đếm không
+    ghi; lần retry build đè lên rác đó ⇒ DB có 13 SO trong khi builder khai 12, và **run vẫn xanh**
+    vì đẳng thức tiền không liên quan tới đơn lẻ loi. Đã thêm check C9 so exact counts (hoá đơn / SO /
+    phiếu thu / credit note) với `shape` đã lưu + `ensure_dataset` dọn dataset dở trước khi build lại.
+45. **Hai cái bẫy Python/Frappe tôi tự gây rồi tự sửa:** (a) đặt biến của list-comprehension (`index`)
+    rồi dùng lại cùng tên đó làm biến vòng lặp ở dưới ⇒ `UnboundLocalError` (comprehension có scope
+    riêng, còn phép gán ở dưới biến nó thành local của hàm); (b) `inv.items.index(row)` trên Document
+    của Frappe — so sánh là **theo field**, nên hai dòng cùng item/rate coi như bằng nhau và trả về
+    index của dòng anh em ⇒ gửi sai `return_line` và bị controller từ chối. Dùng `enumerate` theo
+    **vị trí** cho dòng của Document, đừng bao giờ dùng `.index()`.
+46. **Lỗi từ APP KHÁC cũng làm test của mình đỏ — đọc traceback trước khi nghi code mình.** Một lần
     rebuild dataset chết với `NameError: name 'is_perpetual_inventory_enabled' is not defined` —
     traceback chỉ đích danh `custom_app/.../stock_integrity.py` (hook `Sales Invoice.on_submit`), và
     file đó đang được chủ dự án sửa song song (line number lệch 1 dòng giữa 2 lần đọc = bằng chứng
     file vừa đổi). Retry sau đó xanh lại. Không sửa app của người khác, không tự kết luận code mình sai.
+47. **Nhận con JE mồ côi chỉ theo (khách, tiền) là HOÁN ĐỔI AUDIT, không phải idempotency.**
+    `_adopt_or_create_je` (P0.5) đầu tiên adopt JE mồ côi chỉ khớp party+debit: hai dòng CÙNG khách
+    CÙNG số tiền (2 lứa cũ nợ bằng nhau — ngoài đời thật) trong cửa sổ crash sẽ bị hoán đổi JE —
+    tiền đúng nhưng remark audit ("lứa cũ LOT-…") ghi nhầm lứa. Vá: khớp thêm needle remark
+    `lứa cũ {old_code}` (remark dựng từ FILE, không từ đồng hồ); dòng không có mã lứa cũ thì adopt
+    con mồ côi CŨ NHẤT (các dòng đối xứng). Mồ côi không ai nhận để lại cho dòng anh em; reconcile
+    (diff≠0) bật đèn đỏ cho operator dọn — lỗi nhìn thấy được tốt hơn swap audit âm thầm.
+    Mutation-check bằng cách ĐẢO needle → T5 đỏ `11 -> 12`; khôi phục → xanh 6/6.
+48. **Test giải fixture TRƯỚC khi tự tạo nó = không bao giờ bootstrap được.** T1 p05_acceptance
+    gọi `_scope_customers()` (raise nếu thiếu khách) TRƯỚC import tạo khách ⇒ sau khi `cleanup()`
+    dọn sạch, `run()` trắng site fail CẢ 6 check "T1 must run first" — trong khi T1 chính là check
+    chạy import. Sửa: import xong mới tính scope. Nguyên tắc: check tạo fixture không được
+    precondition trên output của chính nó.
+49. **Hai `def cleanup()` trong cùng module: định nghĩa CUỐI âm thầm thắng.** Bản cleanup mới viết
+    đầu file bị bản gốc đầy đủ hơn (cuối file) che mất — site chạy bản GỐC trong khi review đọc
+    bản CỦA TÔI. Dấu hiệu lộ: format output không khớp (`[P0.5 cleanup] removed …` vs
+    `[feed_dealer] P0.5 cleanup removed 42 fixture(s)`). Sau khi thêm hàm vào file dài:
+    `grep -c "def cleanup"` phải ra 1. Gặp duplicate bị che: giữ bản đầy đủ hơn, xoá bản mới.
+50. **Không log = chưa từng chạy; log không EXIT = đang chạy.** `bench.py --to-file` chỉ ghi log
+    KHI LỆNH XONG: log không có `=== EXIT n ===` nghĩa là lệnh vẫn đang chạy (đọc lại sau), còn
+    KHÔNG TỒN TẠI file log sau khi kill wrapper local = lệnh CHƯA BAO GIỜ khởi động (RPC chết cùng
+    wrapper) — chạy lại ngay, đừng tiếp tục thăm dò một đường dẫn sẽ không bao giờ có file.

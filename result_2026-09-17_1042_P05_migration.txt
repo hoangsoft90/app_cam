@@ -1,0 +1,65 @@
+# RESULT — P0.5 Legacy Data Migration (Opening Balance)
+Ngày: 2026-09-17 10:42 · Site: frontend (ERPNext v16, Mac + ngrok)
+
+## Status: DONE
+
+## Bằng chứng test (log mới sinh trong container, không dùng log cũ)
+
+```
+bench clear-cache + push content-verified trước MỖI lần chạy
+
+p05_acceptance.run (từ site trắng sau cleanup):
+  T1  import + reconcile diff 0     PASS   AR_open == BD_open == 34,975,000 over 11 debts, 11 JEs, diff 0
+  T2  ordinary debt still rejected  PASS   "Phải chọn 'Hóa đơn bán hàng' khi đây không phải nợ đầu kỳ"
+  T3  opening has NO invoice        PASS   11 opening debts: 0 SI, every debt linked to a Dr-AR/Cr-opening JE
+  T4  re-import idempotent          PASS   debts 11->11, JEs 11->11, sum 34,975,000 unchanged, diff 0
+  T5  orphan JE adopted             PASS   orphan ACC-JV-2026-00065 adopted; JEs 11 -> 11, diff 0
+  T6  JEs balanced + no offset tag  PASS   11 JE(s) balanced, none carries batch_debt
+
+Regression (cùng revision cuối):
+  P0  9/9 · P1A 8/8 · P1B 10/10 · P1C 10/10 · P1D 8/8 · P1F 9/9   (ALL PASS)
+
+Mutation-check T5: đảo needle remark ("khớp" → "không khớp") → T5 ĐỎ
+  "booked an extra JE instead of adopting: 11 -> 12" → khôi phục byte-identical → xanh 6/6.
+```
+
+## Reconcile mẫu (như template RESULT của prompt)
+
+```
+AR_open  = 34,975,000 VND (SUM JE debit, party=Customer, 11 JE)
+BD_open  = 34,975,000 VND (SUM Batch Debt outstanding, 11 debts, is_opening_balance=1)
+diff     = 0  (tolerance tuyệt đối — mọi số hạng là số nguyên VND, không FX/không làm tròn)
+```
+
+## Review vừa làm — 3 lỗ hổng tìm thấy, đã vá + có test
+
+| # | Lỗ hổng | Vá | Bằng chứng |
+|---|---|---|---|
+| H1 | T1 gọi `_scope_customers()` TRƯỚC import → site trắng không thể bootstrap (cả 6 check đỏ "T1 must run first" trong khi T1 chính là check import) | import xong mới tính scope | run4: 6/6 từ site trắng sau cleanup |
+| H2 | T5 đếm link debt→JE → adopt ĐÚNG bị coi là tạo mới (10→11 đỏ giả) | đổi sang đếm Journal Entry DOCUMENT (định nghĩa "không tạo JE mới") | dbg3: T5 PASS 11→11 |
+| H3 | `_adopt_or_create_je` adopt chỉ theo (khách, tiền) → 2 dòng cùng khách cùng tiền bị HOÁN ĐỔI JE khi crash-replay: tiền đúng, remark audit ghi nhầm lứa | khớp thêm needle `lứa cũ {old_code}` từ remark (deterministic từ file); không mã lứa → adopt oldest | mutation needle đảo → T5 đỏ 11→12; khôi phục → xanh |
+
+Kèm dọn rác: 4 JE mồ côi tích tụ từ các lần T5 fail trước (pre-adoption) đã được
+`cleanup()` gốc thu trong đợt "removed 42 fixture(s)".
+
+## Bài học đã đóng gói
+
+- Skill `.agents/skills/erpnext-v16-pitfalls/SKILL.md` §8/§4: 4 bullet mới —
+  adopt-by-money là audit swap · test không được precondition trên fixture của
+  chính nó · duplicate `def` cuối file âm thầm thắng · không log = chưa chạy /
+  log không EXIT = đang chạy.
+- `LESSONS_LEARNED.md` mục 47–50 (tiếng Việt, cùng nội dung).
+
+## File mới/đã sửa
+
+- `apps/feed_dealer/feed_dealer/setup/migration.py` (mới) — import + reconcile
+- `apps/feed_dealer/feed_dealer/setup/p05_acceptance.py` (mới) — 6 check + cleanup
+- `scripts/migration/{customers,opening_batches,opening_balances}.csv`, `validate_csv.py`, `README.md` (mới)
+- Skill + LESSONS_LEARNED + working.md (bài học)
+
+## Còn lại / ghi chú
+
+- P1E vẫn BLOCKED (thiếu sandbox VNPT/Viettel/MISA) — không đổi.
+- Cleanup dataset mẫu: `bench --site frontend execute feed_dealer.setup.p05_acceptance.cleanup`
+  (chỉ dành cho data PREFIXED/mẫu — nợ thật không bao giờ tự dọn).
+- Commit: xem working.md (hash dán từ `git log -1`, không ghi từ trí nhớ).

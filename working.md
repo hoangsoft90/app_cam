@@ -4,6 +4,26 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Đang làm
 
+- [2026-09-17] **Review round sau P1G — cứng hóa KIỂM CHỨNG. ĐÃ TEST trên site thật (clear-cache), CHƯA COMMIT**
+  — review **không tìm ra lỗi trong code P1G/P1D**, nhưng tìm ra 2 lỗ hổng ở cách kiểm chứng, đã đóng bằng code:
+  (1) `--to-file` không đảm bảo thứ tự ⇒ `debug` đọc DB khi `cleanup` còn xoá dở ⇒ `8/9` vô nghĩa;
+  dấu hiệu nhận biết bằng chứng nhiễm: PA/ER **giống hệt** lần trước (số độc lập với thay đổi) còn RT/OF về 0.
+  Đóng bằng `.agent/bench_wait.py` (chờ dòng `=== EXIT n ===`).
+  (2) Fixture kiểm "đủ dòng" ⇒ 1 Sales Order lạc từ build chết (13 SO vs khai 12) vẫn để suite xanh;
+  đóng bằng check `C9` so **số đúng** với `shape` + `ensure_dataset` dọn dataset dở trước khi build lại.
+  Lỗi tự gây do C9 bắt được và đã sửa: biến comprehension (`index`) trùng tên biến vòng lặp (`UnboundLocalError`);
+  thêm assert số dòng SO→SI (chống `zip` truncate âm thầm); `if not debt: continue` trước khi đọc cột nợ;
+  `p1g_reports_check.py` dùng chung `Report()` của `p1b_acceptance` (hết drift format).
+  Bằng chứng tái xác minh trên revision đã review (`bench_wait` + clear-cache):
+  ```
+  /tmp/rv2_p1g.log   P1G INTEGRITY: ALL PASS   9/9  (C9 exact: 70 invoices / 12 SO / 45 receipts / 3 offset JEs)
+  /tmp/rv2_rep.log   P1G REPORTS: ALL PASS     4/4
+  /tmp/rv2_p1d.log   P1D: ALL PASS             8/8
+  ```
+  Lưu vết: `design.md` **D26**, `tasks.md` **14c**, skill §8, `LESSONS_LEARNED.md` 42b–46,
+  `faq.md` 10f/10g, `checklist.md` B0b, `features.md` 1i, `next.md` 1c,
+  `result_2026-09-17_0805_review_P1G.txt`, `handoff_2026-09-17_0805.md`.
+
 - [2026-09-17] **P1G — integrity AR vs Batch Debt + 7 báo cáo + Exit Gate Phase 1. ĐÃ TEST trên site
   thật (clear-cache trước mỗi lần chạy), ĐÃ COMMIT** — hash dán nguyên văn từ
   `git log -1 --format='%H %s'`:
@@ -251,3 +271,20 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   /tmp/p0_recheck2.json. 2 trap mới (đã ghi vào .agents/skills/erpnext-v16-pitfalls):
   guard huỷ phải nằm ở before_cancel (không phải on_cancel); hooks.py sửa xong phải
   `bench clear-cache` mới ăn (Redis app_hooks cache). Chưa commit (chờ user duyệt).
+2026-09-17 10:42 — P0.5 Legacy Data Migration: DONE, test thật trên site frontend.
+- migration.py: JE per balance row (Dr AR party=Customer / Cr opening, resolver
+  param > Temporary > 1 leaf Equity, thiếu → throw), Batch Debt
+  is_opening_balance=1 + link opening_journal_entry, KHÔNG gắn batch_debt trên
+  dòng JE (tránh _offset_sum cấn sai chiều), KHÔNG whitelist API (vùng tiền).
+  Draft debt trước → JE sau: crash giữa chừng còn resume được.
+- Adoption JE mồ côi khớp (khách, tiền) + needle remark `lứa cũ {old_code}`
+  (chống hoán đổi audit khi 2 dòng cùng khách cùng tiền); rows không mã lứa
+  adopt oldest (đối xứng).
+- Templates CSV + validate_csv.py (validate offline, sửa lỗi phones chưa gán);
+  import_from_files đọc từ bench host; reconcile diff=0 (tolerance tuyệt đối).
+- p05_acceptance: 6/6 PASS từ site trắng (sau cleanup) — T1 bootstrap fixed
+  (import xong mới tính scope); T5 đo bằng JE DOCUMENT count (link-count đếm
+  nhầm adopt đúng thành tạo mới); mutation-check needle đảo → T5 đỏ 11→12 →
+  khôi phục → xanh 6/6. Regression: P0 9/9, P1A 8/8, P1B 10/10, P1C 10/10,
+  P1D 8/8, P1F 9/9.
+- Bài học 47–50 (LESSONS_LEARNED) + 4 bullet mới trong skill §8/§4.
