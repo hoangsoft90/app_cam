@@ -71,6 +71,19 @@ def offset_livestock_sale(feed_batch, row_name):
 		frappe.throw(f"Hoá đơn mua vào {invoice.name} chưa submit.")
 	if not invoice.company:
 		frappe.throw(f"Hoá đơn mua vào {invoice.name} thiếu công ty.")
+	# IDENTITY GUARD (review finding): the Journal Entry below debits the SUPPLIER's payable and
+	# credits the CUSTOMER's receivable. If those are two different parties, the entry cancels one
+	# person's payable with another person's receivable — the farmer never gets paid AND an unrelated
+	# supplier's debt disappears. Offsetting is only meaningful when both sides are the same subject
+	# (the usual case: the farmer is registered as Supplier with the same name), so refuse anything
+	# else and let accounting settle it explicitly.
+	if invoice.supplier != batch.customer:
+		frappe.throw(
+			f"Nhà cung cấp trên hoá đơn mua ({invoice.supplier}) không phải khách hàng của lứa "
+			f"({batch.customer}). Cấn trừ chỉ hợp lệ khi cùng một chủ thể — tạo Supplier trùng tên với "
+			f"Customer (hoặc để kế toán xử lý riêng), không cấn trừ nợ của người khác.",
+			title="Sai chủ thể cấn trừ",
+		)
 
 	debts = _open_debts(batch.name, batch.customer)
 	total_open = flt(sum(flt(debt.outstanding_amount) for debt in debts))

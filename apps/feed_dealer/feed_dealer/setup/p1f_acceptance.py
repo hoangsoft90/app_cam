@@ -18,6 +18,10 @@ Covers the prompt's P1F acceptance list on real submitted documents:
       line per debt slice, offsets the debt by the invoice amount
   T7  offset is capped at what is owed (the remainder stays payable) and cancelling
       the Journal Entry reopens the debt
+  T8  one party's purchase invoice cannot net another party's debt (identity guard)
+  T9  a Journal Entry may only net a debt belonging to the party on its own line, and
+      the refusal happens BEFORE the write (the same attribution guard, exercised
+      directly on the JE instead of through the offset API)
 
 Fixtures live under the P1F-ACCEPT prefix so the other suites' cleanups never touch
 them (and this cleanup never touches theirs).
@@ -156,7 +160,7 @@ def _purchase_invoice(supplier, amount):
 	return pi
 
 
-def _livestock_row(batch, purchase_invoice, amount, offset=True):
+def _livestock_row(batch, purchase_invoice, amount):
 	"""Append a Livestock Sale row to the Feed Batch and return its row name."""
 	doc = frappe.get_doc("Feed Batch", batch)
 	doc.append(
@@ -169,7 +173,7 @@ def _livestock_row(batch, purchase_invoice, amount, offset=True):
 			"unit_price": flt(amount),
 			"total_amount": flt(amount),
 			"purchase_invoice": purchase_invoice,
-			"offset_to_debt": 1 if offset else 0,
+			"offset_to_debt": 1,
 		},
 	)
 	doc.flags.ignore_permissions = True
@@ -400,7 +404,10 @@ def check_livestock_offset_double_entry():
 	from feed_dealer.events.livestock_offset import offset_livestock_sale
 
 	inv, batch, debt_name = _batched_invoice("T6", qty=10, rate=100_000)
-	supplier = _supplier(f"{PREFIX} Supplier T6")
+	# The supplier MUST be the same subject as the customer: the offset debits the supplier's
+	# payable and credits this customer's receivable, so two different parties would cancel one
+	# person's payable with another person's receivable (T8 asserts that is refused).
+	supplier = _supplier(f"{PREFIX} T6")
 	pi = _purchase_invoice(supplier, 700_000)
 	row_name = _livestock_row(batch, pi.name, 700_000)
 
@@ -431,7 +438,7 @@ def check_livestock_offset_capped_and_reversible():
 	from feed_dealer.events.livestock_offset import offset_livestock_sale
 
 	inv, batch, debt_name = _batched_invoice("T7", qty=10, rate=100_000)
-	supplier = _supplier(f"{PREFIX} Supplier T7")
+	supplier = _supplier(f"{PREFIX} T7")
 	pi = _purchase_invoice(supplier, 1_500_000)
 	row_name = _livestock_row(batch, pi.name, 1_500_000)
 
@@ -455,6 +462,94 @@ def check_livestock_offset_capped_and_reversible():
 	)
 
 
+def check_offset_refuses_other_party():
+	"""T8: a Purchase Invoice from a DIFFERENT party must not net this customer's debt.
+
+	Review finding: the JE debits the invoice's supplier and credits the batch's customer, so
+	allowing different subjects would cancel somebody else's payable against this farmer's
+	receivable — the farmer never gets paid and another supplier's debt vanishes.
+	"""
+	from feed_dealer.events.livestock_offset import offset_livestock_sale
+
+	inv, batch, debt_name = _batched_invoice("T8", qty=10, rate=100_000)
+	other = _supplier(f"{PREFIX} Other Supplier T8")
+	if other == frappe.db.get_value("Batch Debt", debt_name, "customer"):
+		raise AssertionError("fixture broken: the other supplier must differ from the customer")
+	pi = _purchase_invoice(other, 300_000)
+	row_name = _livestock_row(batch, pi.name, 300_000)
+
+	blocked, detail = False, ""
+	try:
+		offset_livestock_sale(batch, row_name)
+	except Exception as exc:  # noqa: BLE001
+		blocked, detail = True, f"{type(exc).__name__}: {str(exc)[:160]}"
+	if not blocked:
+		raise AssertionError("a third party's purchase invoice was netted against this customer's debt")
+	if "không phải khách hàng" not in detail:
+		raise AssertionError(f"refused for the WRONG reason (weak test): {detail}")
+	if flt(_debt(debt_name).offset_amount):
+		raise AssertionError("the refused offset must not have touched the debt")
+	if frappe.db.get_value("Livestock Sale", row_name, "journal_entry"):
+		raise AssertionError("the refused offset must not have linked a journal entry")
+	return f"PI from {other} vs debt of another customer refused ({detail}); debt and row untouched"
+
+
+def check_je_refuses_other_party():
+	"""T9: a Journal Entry must not net a debt that belongs to a different party.
+
+	Review finding: `batch_debt` is read-only in the UI but settable through the API/import, and
+	an unchecked value would let one customer's receivable be reduced by a document naming another
+	party. The JE hook must fail closed (same attribution rule P1D applies to return lines).
+	"""
+	inv, batch, debt_name = _batched_invoice("T9", qty=10, rate=100_000)
+	other = _customer("T9 Other")
+	if other == frappe.db.get_value("Batch Debt", debt_name, "customer"):
+		raise AssertionError("fixture broken: the other party must differ from the debt's customer")
+
+	company = _company()
+	je = frappe.get_doc(
+		{
+			"doctype": "Journal Entry",
+			"voucher_type": "Journal Entry",
+			"company": company,
+			"posting_date": nowdate(),
+			"accounts": [
+				{"account": _expense_account(), "debit_in_account_currency": 100_000},
+				{
+					"account": frappe.get_cached_value("Company", company, "default_receivable_account"),
+					"party_type": "Customer",
+					"party": other,
+					"credit_in_account_currency": 100_000,
+					"batch_debt": debt_name,
+				},
+			],
+		}
+	)
+	blocked, detail = False, ""
+	try:
+		je.insert(ignore_permissions=True)
+		je.submit()
+	except Exception as exc:  # noqa: BLE001
+		blocked, detail = True, f"{type(exc).__name__}: {str(exc)[:160]}"
+	if not blocked:
+		raise AssertionError("a Journal Entry netted a debt belonging to another party")
+	if "sai người" not in detail:
+		raise AssertionError(f"refused for the WRONG reason (weak test): {detail}")
+	if flt(_debt(debt_name).offset_amount):
+		raise AssertionError("the refused Journal Entry must not have touched the debt")
+	# Fail-closed proof: the refusal must happen BEFORE the write. `on_submit` runs after
+	# `_submit()` has already stored docstatus=1, so a guard there left a submitted JE behind
+	# whenever the caller swallowed the error - this assertion is what caught that (see
+	# `journal_entry.validate`). Nothing may reference the debt, not even a draft.
+	if frappe.get_all("Journal Entry Account", filters={"batch_debt": debt_name}, pluck="parent"):
+		raise AssertionError("the refused Journal Entry reached the database anyway")
+	frappe.db.commit()
+	return (
+		f"JE crediting {other}'s receivable against another customer's debt refused "
+		f"({detail}); debt untouched, JE never written"
+	)
+
+
 CHECKS = (
 	("T1  consent lifecycle", check_consent_lifecycle),
 	("T2  consent append-only", check_consent_cannot_be_revived),
@@ -463,6 +558,8 @@ CHECKS = (
 	("T5  split refuses part-paid", check_batch_split_refuses_touched_debt),
 	("T6  livestock offset (JE)", check_livestock_offset_double_entry),
 	("T7  offset capped + reversible", check_livestock_offset_capped_and_reversible),
+	("T8  offset refuses other party", check_offset_refuses_other_party),
+	("T9  JE refuses other party", check_je_refuses_other_party),
 )
 
 
@@ -523,6 +620,15 @@ def cleanup():
 		):
 			if row:
 				jes.add(row)
+	# A Journal Entry that names a P1F debt is not always linked from a Livestock Sale row: the
+	# offset API links it, but a test or an API caller can submit one directly. Those leftovers are
+	# not found above, and a submitted JE pointing at a debt makes `delete_doc("Batch Debt")` fail
+	# with a LinkExistsError - the debt survives as a cancelled row whose `sales_invoice` can later
+	# alias a re-created invoice name, which is exactly how a fixture saw "2 debts" for one invoice.
+	for debt in frappe.get_all("Batch Debt", filters={"customer": ["in", customers]}, pluck="name"):
+		jes.update(
+			frappe.get_all("Journal Entry Account", filters={"batch_debt": debt}, pluck="parent")
+		)
 	for je_name in jes:
 		try:
 			doc = frappe.get_doc("Journal Entry", je_name)

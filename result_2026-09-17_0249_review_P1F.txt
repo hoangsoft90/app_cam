@@ -1,0 +1,85 @@
+RESULT — Review đợt P1F (2026-09-17 02:49)
+==========================================================================
+Status: DONE (đã test trên site thật) — CHƯA COMMIT, chờ user duyệt
+Site:   ERPNext v16, site `frontend` (Mac frappe_docker, push content-verified 99 file)
+
+CÂU HỎI CỦA USER: "Viết xong đã test code chưa? Đừng quên clear cache trước khi test."
+=> ĐÃ test, và có clear cache trước MỖI lần chạy (bench clear-cache + xoá __pycache__).
+   Không có PASS nào dựa trên log cũ: mọi con số dưới đây là log mới trong container.
+
+BẰNG CHỨNG (sau clear-cache, sau push content-verified)
+--------------------------------------------------------------------------
+  /tmp/p1f_fin.log   TOTAL: 9   PASS: 9   FAIL: 0   P1F ACCEPTANCE: ALL PASS
+  /tmp/p0_fin.log    TOTAL: 9   PASS: 9   FAIL: 0   P0 ACCEPTANCE: ALL PASS
+  /tmp/p1a_fin.log   TOTAL: 8   PASS: 8   FAIL: 0   P1A ACCEPTANCE: ALL PASS
+  /tmp/p1b_fin.log   TOTAL: 10  PASS: 10  FAIL: 0   P1B ACCEPTANCE: ALL PASS
+  /tmp/p1c_fin.log   TOTAL: 10  PASS: 10  FAIL: 0   P1C ACCEPTANCE: ALL PASS
+  /tmp/p1d_fin.log   TOTAL: 7   PASS: 7   FAIL: 0   P1D ACCEPTANCE: ALL PASS
+
+MUTATION-CHECK (test phải có răng)
+--------------------------------------------------------------------------
+  Tắt guard JE (`_validate_attribution` -> `pass`) -> p1f debug: FAIL T9, 8/9
+  Khôi phục byte-identical (`diff -q`) -> p1f run(): 9/9 ALL PASS
+
+4 FINDING ĐÃ SỬA (tất cả ở nguồn chân lý / file thật)
+--------------------------------------------------------------------------
+F1 — GUARD HIỂU SAI HOOK (nặng nhất)
+  Guard chủ thể của Journal Entry đặt ở `on_submit`. Frappe: `_submit()` = `docstatus = 1;
+  save()`; `save()` chạy `validate` + `before_submit` TRƯỚC `db_update()`, còn `on_submit`
+  chạy SAU. Hệ quả ĐO ĐƯỢC: JE sai chủ thể vẫn nằm trong DB ở docstatus=1 (và link của nó
+  làm `delete_doc("Batch Debt")` ném LinkExistsError).
+  Sửa: guard chuyển sang `validate` (chạy cho cả draft save lẫn submit, vẫn trước write) +
+  đăng ký `"validate"` trong hooks.py cho Journal Entry. `on_submit` chỉ còn recalc.
+  Test mới T9 assert JE KHÔNG BAO GIỜ được insert (query `Journal Entry Account.batch_debt`).
+
+F2 — Guard danh tính cho livestock offset
+  JE debit payable của supplier và credit receivable của customer; nếu 2 chủ thể khác nhau thì
+  "xoá nợ phải trả của người khác bằng khoản phải thu của người này" -> nông dân không được trả
+  tiền và nợ của supplier khác biến mất. Thêm `if invoice.supplier != batch.customer: throw`.
+  Test T8 (assert ĐÚNG lý do + debt & row không đổi).
+
+F3 — `has_been_split` bị set cho cả merge/allocate
+  Trước: mọi operation_type đều gán `has_been_split=1` cho source batches. `has_been_split` nghĩa
+  là "đã tách" -> giờ chỉ set khi `operation_type == "Tách lứa"`; các loại khác vẫn ghi
+  `split_operation` để audit.
+
+F4 — Patch Print Format ghi đè bản của user
+  Trước: nếu là format "custom + có module" thì bỏ qua, còn lại thì update (nghĩa là ĐÈ lên bản
+  user tự sửa, vì `module` rỗng ở cả hai loại custom format). Sửa: KHÔNG BAO GIỜ ghi đè — cài
+  một lần, và in rõ phần đã có (để thay đổi sau này là hành động của operator).
+
+BONUS — Cleanup quét theo attribution
+  `cleanup()` chỉ thu JE qua `Livestock Sale.journal_entry`, nên JE do test tự submit không thấy
+  được -> `delete_doc("Batch Debt")` lỗi `LinkExistsError` bị try/except nuốt thành dòng FAILED
+  -> debt còn lại dạng cancelled -> `sales_invoice` của nó sau đó trùng tên hoá đơn được TẠO LẠI
+  -> lần chạy sau fixture báo "expected 1 debt ..., got 2". Đã sửa: quét thêm mọi
+  `Journal Entry Account.batch_debt` của các khách fixture.
+
+DỌN DẸP
+--------------------------------------------------------------------------
+  - Xoá `apps/feed_dealer/feed_dealer/setup/_t9_probe.py` (local + Mac).
+  - Phát hiện và xoá luôn `_p1d_probe.py` còn sót trên Mac từ phiên trước.
+  - Kiểm tra lại: thư mục `setup/` trên Mac chỉ còn các file thật.
+
+BÀI HỌC ĐÃ ĐÓNG GÓI (đều đã verify)
+--------------------------------------------------------------------------
+  skill `erpnext-v16-pitfalls`:
+    - §1.3 thêm: "A refusal gate on `on_submit` cannot prevent the write" + bằng chứng T9.
+    - §4: allowlist MCP (`rm -f` bị chặn tên; newline trong `python3 -c` = chaining;
+      `push_to_mac.py` KHÔNG xoá file chỉ có trên Mac).
+    - §6.1: "refusal test must prove nothing was written" + "cleanup must sweep by attribution".
+  LESSONS_LEARNED.md: mục 32–35 tương ứng.
+  design.md: D22 (Refusal gates live on `validate`; cleanup by attribution).
+  tasks.md: 13.8 (review round, 4 fix) + cập nhật 13.5 (P1F 9/9).
+
+DIFF (chưa commit)
+--------------------------------------------------------------------------
+  10 file: LESSONS_LEARNED.md, journal_entry.py, livestock_offset.py, batch_operation.py,
+  hooks.py, install_print_formats.py, p1f_acceptance.py, design.md, tasks.md, working.md
+  (+268 / −21). Không có secret trong diff.
+
+NEXT
+--------------------------------------------------------------------------
+  - Chờ user duyệt commit (vùng nhạy cảm: tiền + phân quyền).
+  - Sau commit: P1G (báo cáo + script đối chiếu AR vs Batch Debt) — đây cũng là lúc verify bằng
+    số liệu thật cho VIỆC 1; nợ kỹ thuật P0.5 vẫn bắt buộc trước go-live.

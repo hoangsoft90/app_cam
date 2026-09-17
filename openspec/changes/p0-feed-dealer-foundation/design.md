@@ -293,6 +293,28 @@ P1F's legal pair, with the policy choices made explicit because the prompt allow
    `confirmed_by_customer` without an attached `signed_photo` is refused — the signature IS the
    evidence.
 
+### D22 — Refusal gates live on `validate`; a gate on `on_submit` is decoration
+
+Found by review of the P1F livestock-offset JE, and it applies to every hook in this app:
+
+1. **`on_submit` runs after the write.** `Document._submit()` is `docstatus = 1; return self.save()`,
+   `save()` runs `run_before_save_methods()` (`validate`, `before_submit`) *before* `db_update()`,
+   and `on_submit` fires afterwards. A `throw` in `on_submit` therefore leaves the document stored
+   as docstatus=1 whenever the caller swallows the exception (a script, an API that catches, a test
+   runner) — measured: the refused Journal Entry was in the DB. The attribution gate moved to
+   `validate`, which runs for a draft save *and* a submit and still before the write; `p1f T9`
+   asserts the JE is never inserted (no `Journal Entry Account` row may name the debt).
+2. **A "was refused" test must prove nothing was written.** Asserting only the exception let a
+   wrong-hook guard pass; the persisted-state assertion is what exposed it, and it is the shape every
+   refusal test in this suite now uses.
+3. **Cleanup finds fixtures by attribution, not only by parent link.** `cleanup()` collected Journal
+   Entries only through `Livestock Sale.journal_entry`, so a JE submitted directly by a test survived,
+   blocked `delete_doc("Batch Debt")` (`LinkExistsError`, recorded as a harmless-looking `FAILED:`
+   line), and left a cancelled debt whose `sales_invoice` later aliased a re-created invoice name —
+   the next run's fixture then saw "2 debts for one invoice". It now also sweeps every
+   `Journal Entry Account.batch_debt` belonging to the fixture customers, and a `FAILED:` line in a
+   cleanup report is treated as a real bug rather than noise.
+
 ## Risks / Trade-offs
 
 - [Deploying to a live site that other people and apps are using] → Every master step is create-if-absent and name-resolved; nothing is renamed, re-parented or deleted; the only writes are new DocTypes, new roles/masters and acceptance fixtures named `P0-ACCEPT…`, which `cleanup()` removes.

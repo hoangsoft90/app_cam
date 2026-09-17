@@ -48,16 +48,16 @@ FORMATS = {
 
 
 def execute():
-	installed = []
+	installed, skipped = [], []
 	for name, spec in FORMATS.items():
 		if frappe.db.exists("Print Format", name):
-			doc = frappe.get_doc("Print Format", name)
-			if doc.get("custom_format") and doc.get("module"):
-				# Owned by another app/module: leave it alone.
-				continue
-		else:
-			doc = frappe.new_doc("Print Format")
-			doc.name = name
+			# NEVER overwrite: a record with this name may be the user's own edit, and there is no
+			# reliable way to tell ours from theirs (`module` is empty for both on a custom format).
+			# This patch ships the format once; changing it later means the operator deletes it.
+			skipped.append(name)
+			continue
+		doc = frappe.new_doc("Print Format")
+		doc.name = name
 		doc.doc_type = spec["doc_type"]
 		doc.print_format_type = "Jinja"
 		doc.custom_format = 1
@@ -66,4 +66,4 @@ def execute():
 		doc.flags.ignore_permissions = True
 		doc.save()
 		installed.append(name)
-	print(f"[install_print_formats] installed/updated: {installed or 'nothing'}")
+	print(f"[install_print_formats] installed: {installed or 'nothing'}; already present (untouched): {skipped or 'none'}")

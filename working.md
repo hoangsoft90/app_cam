@@ -4,6 +4,24 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Đang làm
 
+- [2026-09-17] **Review P1F — đã viết xong code + ĐÃ TEST trên site thật (clear-cache trước mỗi lần
+  chạy).** 4 finding đã sửa, tất cả ở nguồn chân lý:
+  • **guard HIỂU SAI HOOK (nặng nhất):** `on_submit` chạy SAU khi ghi DB ⇒ guard đặt ở đó **không
+    chặn được gì** — JE sai chủ thể vẫn nằm trong DB docstatus=1 (đã đo bằng probe, không đoán).
+    Chuyển sang `validate` (chạy cho cả draft save lẫn submit, vẫn trước write) + đăng ký hook;
+    `p1f T9` mới assert **JE không bao giờ được insert** (`Journal Entry Account.batch_debt` rỗng).
+  • guard danh tính cho offset (`invoice.supplier != batch.customer` → từ chối) → `T8`.
+  • `has_been_split` chỉ set khi thật sự **Tách lứa** (merge/allocate không còn gán nhầm).
+  • patch Print Format **không bao giờ ghi đè** (không phân biệt được format của app với bản user
+    tự sửa) → cài 1 lần + báo cáo phần đã bỏ qua.
+  • sửa `cleanup()`: quét JE theo **attribution** (`batch_debt`), không chỉ qua link `Livestock Sale`
+    — đây là gốc của lỗi fixture "2 debts cho 1 hoá đơn" (leftover chặn `delete_doc(Batch Debt)`
+    bằng `LinkExistsError` bị nuốt thành dòng FAILED).
+  **Bằng chứng (sau `clear-cache`):** `P1F 9/9` + regression `P0 9/9 · P1A 8/8 · P1B 10/10 ·
+  P1C 10/10 · P1D 7/7` — tất cả `ALL PASS`, log trong container:
+  `/tmp/{p1f,p0,p1a,p1b,p1c,p1d}_fin.log`. **Mutation-check:** tắt guard JE → `T9` đỏ (8/9); khôi
+  phục byte-identical (`diff -q`) → `9/9`. Probe tạm (`_t9_probe.py`, và `_p1d_probe.py` sót từ
+  phiên trước) đã xoá cả local lẫn Mac.
 - [2026-09-17] **VIỆC 1 + VIỆC 2 + P1F xong** — commit (dán nguyên văn từ `git log -1 --format='%H %s'`):
   ```
   b48d723b81f515d12f0dc7860dcd5d050d93fdf6 feat(feed_dealer): P1F legal/livestock/batch-ops + tabBatch cleanup
@@ -67,6 +85,11 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Chờ user quyết
 
+- [2026-09-17] **Commit đợt review P1F** (6 file code đã verify: `journal_entry.py`,
+  `livestock_offset.py`, `batch_operation.py`, `hooks.py`, `install_patch_formats`
+  (`patches/v1_0/install_print_formats.py`), `p1f_acceptance.py`, + `design.md` D22 / `tasks.md`
+  13.8 / `LESSONS_LEARNED.md` / skill). Đây là vùng nhạy cảm (tiền/phân quyền) nên **dừng chờ
+  bạn duyệt**, không tự commit.
 - [x] [2026-09-16] **Commit P1C — ĐÃ DUYỆT và đã commit `7c62129`** (19 file, +1857/−64): code +
   4 bộ test + openspec/docs. Task 11.9 đóng.
 - [2026-09-16] ~~2 lỗ hỏng P1B~~ **đã đóng ở P1C** (`design.md` D16): (1) *Unreconcile Payment*

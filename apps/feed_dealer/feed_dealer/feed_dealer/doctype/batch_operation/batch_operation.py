@@ -184,13 +184,13 @@ class BatchOperation(Document):
 					_release(debt.name)
 
 		source_names = {row.batch for row in self.source_batches}
+		# `has_been_split` means exactly that: only a split sets it. A merge/allocate still records the
+		# operation on the sources (audit), but flagging them as "split" would be wrong.
 		for name in source_names:
-			frappe.db.set_value(
-				"Feed Batch",
-				name,
-				{"has_been_split": 1, "split_operation": self.name},
-				update_modified=False,
-			)
+			values = {"split_operation": self.name}
+			if self.operation_type == "Tách lứa":
+				values["has_been_split"] = 1
+			frappe.db.set_value("Feed Batch", name, values, update_modified=False)
 		parent = self.source_batches[0].batch if self.operation_type == "Tách lứa" else None
 		for row in self.target_batches:
 			values = {"split_operation": self.name}

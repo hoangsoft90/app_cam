@@ -191,6 +191,8 @@ doc_events = {
 	# (recalculate only — never cascade money). `Customer.validate` is the consent
 	# gate: a warning, not a block (policy documented in the consent controller).
 	"Journal Entry": {
+		# `validate` (pre-write) holds the attribution gate; `on_submit` only recalculates.
+		"validate": "feed_dealer.events.journal_entry.validate",
 		"on_submit": "feed_dealer.events.journal_entry.on_submit",
 		"on_cancel": "feed_dealer.events.journal_entry.on_cancel",
 	},

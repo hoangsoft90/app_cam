@@ -293,11 +293,28 @@ keeps describing what actually shipped.
   `T5` (part-paid debt refused with the right message, debt untouched). Mutation: guard disabled →
   T5 red.
 - [x] 13.5 Regression + generator integrity: P0 9/9, P1A 8/8, P1B 10/10, P1C 10/10, P1D 7/7,
-  P1F 7/7 — all `ALL PASS`; `gen_feed_dealer.py --check` 58/58 matching disk (4 new controllers
-  embedded: consent, debt slip, livestock sale, batch operation).
+  P1F 9/9 (T9 added in review, see 13.8) — all `ALL PASS`; `gen_feed_dealer.py --check` 58/58
+  matching disk (4 new controllers embedded: consent, debt slip, livestock sale, batch operation).
 - [x] 13.6 Commit P1F + the tabBatch cleanup + the `references` warning.
   *Evidence:* `b48d723b81f515d12f0dc7860dcd5d050d93fdf6 feat(feed_dealer): P1F legal/livestock/
   batch-ops + tabBatch cleanup` (19 files, +1583/−17) — commit hash copied from `git log -1`.
+- [x] 13.8 Review round on P1F (design.md D22): 4 findings fixed, each with evidence.
+  (a) *Identity guard on the offset* — a Purchase Invoice from a different party than the batch's
+  customer would debit the supplier's payable and credit a stranger's receivable (`invoice.supplier
+  != batch.customer` now refuses; `T8`, mutation: guard off → T8 red).
+  (b) *Attribution guard on the Journal Entry* — `batch_debt` is API-settable, so a JE could net
+  another party's debt; now refused on `validate` (pre-write), and `T9` asserts the JE is never
+  inserted at all. Mutation: guard off → T9 red.
+  (c) *`has_been_split` only on a split* — a merge/allocate was flagging its source batches as
+  "split"; the flag is now set only by `operation_type == "Tách lứa"` (the operation is still
+  recorded for audit).
+  (d) *The print-format patch never overwrites* — it cannot tell the app's format from an operator's
+  own edit (`module` is empty for both), so it installs once and reports what it skipped, instead of
+  clobbering a user's format on every migrate.
+  Same round: `cleanup()` now sweeps Journal Entries by `batch_debt` attribution, not only through
+  `Livestock Sale` links (origin of the "2 debts for one invoice" fixture break).
+  *Evidence:* `P1F 9/9` + regression P0 9/9 · P1A 8/8 · P1B 10/10 · P1C 10/10 · P1D 7/7, all
+  captured under `/tmp/*_fin.log` on the container after `clear-cache`.
 - [ ] 13.7 NOT DONE in this pass, by design: the 7 Desk reports of P1G (`Nợ theo lứa`, `Nợ quá hạn`,
   `Phân bổ thanh toán`, `Dòng tiền 30-60-90`, `Lời/Lỗ theo lứa`, `Hạn mức tín dụng`, `Nhật ký phê
   duyệt`) and the Phase-1 Exit Gate checklist. The AR-vs-Batch-Debt integrity script is described in
