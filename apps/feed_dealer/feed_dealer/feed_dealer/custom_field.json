@@ -1,5 +1,31 @@
 [
   {
+    "dt": "Sales Invoice",
+    "fieldname": "feed_dealer_return_request",
+    "label": "Yêu cầu trả hàng (feed_dealer)",
+    "fieldtype": "Link",
+    "options": "Sales Return Request",
+    "insert_after": "return_against",
+    "read_only": 1,
+    "no_copy": 1,
+    "allow_on_submit": 0,
+    "search_index": 0,
+    "description": "Yêu cầu trả hàng feed_dealer đã tạo credit note này (tự động điền, không sửa tay)."
+  },
+  {
+    "dt": "Sales Invoice Item",
+    "fieldname": "batch_debt",
+    "label": "Khoản nợ bị giảm (feed_dealer)",
+    "fieldtype": "Link",
+    "options": "Batch Debt",
+    "insert_after": "custom_batch",
+    "read_only": 1,
+    "no_copy": 1,
+    "allow_on_submit": 0,
+    "search_index": 1,
+    "description": "Khoản nợ theo lứa mà dòng trả hàng này làm giảm (tự động điền bởi Sales Return Request, không sửa tay)."
+  },
+  {
     "dt": "Sales Invoice Item",
     "fieldname": "custom_batch",
     "label": "Lứa nuôi",

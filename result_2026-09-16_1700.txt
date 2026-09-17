@@ -1,0 +1,79 @@
+# RESULT — P1D Sales Return → returned_amount trên Batch Debt
+
+Ngày: 2026-09-16 17:00 (giờ local)
+Site: ERPNext v16 (frappe_docker trên Mac, site `frontend`), app `feed_dealer`
+
+## Status: DONE (code + test xanh; CHỜ USER DUYỆT COMMIT)
+
+## Đã làm
+
+1. **Controller P1D** (qua generator, không tay):
+   - `sales_return_request.py`: validate draft (items/ownership/return_line/amounts/over-return
+     pre-check), guard "1 request = 1 hoá đơn", `approve()` = `make_return_doc` (qty âm,
+     `sales_invoice_item` mapping) → map `batch_debt` per line → submit note → stamp approval
+     trong MỘT save (allow_on_submit), rollback note nếu stamp fail; `reject()` chỉ đổi status;
+     `before_cancel` chặn huỷ khi note còn sống; `cancel_credit_note` API (`ignore_links`).
+   - `sales_return_item.py`: qty > 0, rate/amount recompute từ dòng gốc.
+   - `batch_debt.py`: `_returned_sum` = `-SUM(net_amount)` các dòng return note submitted;
+     `calculate_derived_fields` ghi `returned_amount` DƯƠNG; `outstanding = allocated - paid -
+     returned`.
+   - `sales_invoice.py` hook: return note KHÔNG tạo Batch Debt — dispatch sang
+     `on_return_note_submitted`/`on_return_note_cancelled` (recalc debts).
+   - `payment_entry.py`: `returned_amount` vào `DERIVED_FIELDS` (fix bug ghi đè im lặng).
+2. **Schema**: `Sales Return Item` + `return_line` (Link → Sales Invoice Item), `batch_debt`
+   (Link → Batch Debt); audit fields `allow_on_submit=1` trên request; 2 custom field cho credit
+   note (`batch_debt` trên SI Item, `feed_dealer_return_request` trên SI) qua `custom_field.json`.
+3. **Generator**: embed đủ 6 controller thật (thêm `credit_score`, `collateral`); guard `REFUSED`
+   chặn ghi skeleton đè code thật (smoke-tested PASS); `--check` = 58/58 khớp disk.
+4. **Sự cố đã xử lý**: xoá nhầm `credit_limit.py` + `config/__init__.py` trên Mac (dựa sai vào
+   danh sách "extra files" của push) → A7/P1C đỏ → khôi phục bằng push content-verified → xanh.
+   Trước đó: DocType `Batch Debt` bị orphan-scan xoá do import sai đường dẫn trong controller
+   (migrate sau dựng lại từ JSON, 159 dòng dữ liệu nguyên vẹn — đã verify).
+
+## Bằng chứng test (site thật, `--to-file`, exit 0)
+
+```
+P1D TOTAL: 6   PASS: 6   FAIL: 0   → P1D ACCEPTANCE: ALL PASS
+  T1  partial return reduces debt    : returned 500,000, outstanding 1,000,000 -> 500,000,
+                                       AR net 500,000 (v16: note tự đối -500,000)
+  T2  over-return refused            : ValidationError trả-vượt-dòng-gốc; debt stays 0
+  T3  draft/reject: no side effect   : 0 notes, debt unchanged
+  T4  two batches map separately     : per-line mapping (-400,000 / -500,000)
+  T6  mixed-invoice request refused  : ValidationError "nhiều hoá đơn" (đúng lý do)
+  T5  cancel note restores           : debt back to 1,000,000, returned_amount 0
+P0  TOTAL: 9   PASS: 9   FAIL: 0
+P1A TOTAL: 8   PASS: 8   FAIL: 0
+P1B TOTAL: 9   PASS: 9   FAIL: 0
+P1C TOTAL: 10  PASS: 10  FAIL: 0
+```
+
+Mutation-check: tắt guard mixed-invoice → T6 ĐỎ (assert-reason bắt được vì guard khác fire
+trước bằng thông điệp khác); khôi phục → 6/6 xanh. Guard generator REFUSED: smoke-test PASS.
+
+## Lệnh tái lập
+
+```
+python3 .agent/gen_feed_dealer.py --check
+python3 .agent/push_to_mac.py apps/feed_dealer /Users/hoang/htdocs/erpnext/app_cam feed_dealer
+python3 .agent/bench.py --site frontend clear-cache
+python3 .agent/bench.py --site frontend --to-file /tmp/p1d_final.log execute feed_dealer.setup.p1d_acceptance.run
+python3 .agent/bench.py --site frontend --to-file /tmp/r2_p0.log  execute feed_dealer.setup.p0_acceptance.run   # + p1a/p1b/p1c
+```
+
+## Commit
+
+- CHỜ DUYỆT (sales-return chạm tiền). Đề xuất message:
+  `feat(feed_dealer): P1D sales return -> derived returned_amount on batch debt`
+
+## Sai khác spec / đã ghi nhận
+
+- T1 assert đúng semantic AR v16 đo được: hoá đơn gốc GIỮ nguyên outstanding, credit note tự
+  đối số âm, AR của khách = NET ở tầng GL (đã đo bằng Payment Ledger trên site này, không phải
+  giả định).
+- Unreconcile v16 không re-link khi cancel (đã ghi D16) — không đổi trong P1D.
+- `cleanup()` của p1d dọn fixture bằng API chính thức (approve/reject/cancel_credit_note).
+
+## Artifacts
+
+- `design.md` D17, `tasks.md` mục 12, spec `feed-dealer-data-model` (+5 scenario Sales Return),
+  `working.md`, skill `erpnext-v16-pitfalls` (mục 1.10, 2.7, 2.8, 3.4, 3.5, 6.2, 6.1 mở rộng).

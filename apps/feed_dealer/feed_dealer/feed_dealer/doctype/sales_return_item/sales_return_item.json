@@ -7,10 +7,12 @@
  "engine": "InnoDB",
  "field_order": [
   "item_code",
+  "return_line",
   "qty",
   "rate",
   "amount",
-  "custom_batch"
+  "custom_batch",
+  "batch_debt"
  ],
  "fields": [
   {
@@ -23,34 +25,50 @@
    "idx": 1
   },
   {
+   "fieldname": "return_line",
+   "fieldtype": "Link",
+   "label": "Dòng hóa đơn gốc",
+   "options": "Sales Invoice Item",
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
    "fieldname": "qty",
    "fieldtype": "Float",
    "label": "qty",
    "reqd": 1,
    "default": "0",
    "in_list_view": 1,
-   "idx": 2
+   "idx": 3
   },
   {
    "fieldname": "rate",
    "fieldtype": "Currency",
    "label": "rate",
    "in_list_view": 1,
-   "idx": 3
+   "idx": 4
   },
   {
    "fieldname": "amount",
    "fieldtype": "Currency",
    "label": "amount",
    "read_only": 1,
-   "idx": 4
+   "idx": 5
   },
   {
    "fieldname": "custom_batch",
    "fieldtype": "Link",
    "label": "Lứa nuôi",
    "options": "Feed Batch",
-   "idx": 5
+   "idx": 6
+  },
+  {
+   "fieldname": "batch_debt",
+   "fieldtype": "Link",
+   "label": "Khoản nợ bị trừ",
+   "options": "Batch Debt",
+   "in_list_view": 1,
+   "idx": 7
   }
  ],
  "index_web_pages_for_search": 1,

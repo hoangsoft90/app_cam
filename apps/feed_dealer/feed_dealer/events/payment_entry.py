@@ -56,6 +56,12 @@ from feed_dealer.events.sales_invoice import _refresh_batch_total
 
 DERIVED_FIELDS = (
 	"paid_amount",
+	# P1D: returned_amount joined the derived set — `_recalculate` is the ONE
+	# writer that persists `calculate_derived_fields()` output, and omitting a
+	# derived field here means the value is computed correctly in memory and
+	# silently dropped on write (measured: outstanding dropped by the return
+	# while returned_amount stayed 0 in the DB).
+	"returned_amount",
 	"outstanding_amount",
 	"overdue_days",
 	"late_payment_fee",

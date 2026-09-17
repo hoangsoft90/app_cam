@@ -4,16 +4,35 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Đang làm
 
-- [2026-09-16] Change `p0-feed-dealer-foundation` — **P1C xong, chỉ còn chờ duyệt commit** (task
+- [2026-09-16] Change `p0-feed-dealer-foundation` — **P1D xong, chờ duyệt commit** (task 12.7).
+  Bằng chứng (site thật, sau `clear-cache`): **P0 `9/9`, P1A `8/8`, P1B `9/9`, P1C `10/10`, P1D
+  `7/7` — tất cả `ALL PASS`, exit 0**. P1D gồm: controller Sales Return Request/Sales Return Item
+  (approve → credit note thật qua `make_return_doc`, qty âm + `sales_invoice_item` mapping),
+  `returned_amount` DERIVED trong `BatchDebt.calculate_derived_fields` (SUM net_amount đảo dấu,
+  ghi qua `DERIVED_FIELDS` của `_recalculate`), guard "1 request = 1 hoá đơn" (T6, mutation
+  check), `cancel_credit_note` API với `ignore_links` (T5). Guard mới chống generator đè controller
+  thật (`REFUSED`) + embed đủ 6 controller thật. Sự cố đã xử lý trong phiên: xoá nhầm
+  `credit_limit.py` trên Mac dựa vào danh sách "extra files" (A7 bắt, đã khôi phục bằng push);
+  DocType `Batch Debt` bị orphan-scan xoá do import sai đường dẫn trong controller (migrate sau đó
+  dựng lại từ JSON, dữ liệu nguyên vẹn). Chi tiết: `design.md` D17, `tasks.md` mục 12,
+  `result_2026-09-16_1700.txt`.
+- [2026-09-17] Review P1D lần cuối (user yêu cầu) — **2 phát hiện, đã vá + verify trên site thật**:
+  (a) thiếu guard **giá trị** trả lại: nợ đã trả một phần (allocated 1.000.000, paid 600.000) vẫn
+  được trả lại 500.000 → `outstanding` = −100.000, `Feed Batch.total_debt` âm, và P1C cộng số âm
+  nên **thổi hạn mức khả dụng** → thêm `_validate_value_vs_outstanding` (chặn theo từng khoản nợ);
+  (b) guard `_validate_over_return` chỉ được gọi trong `approve()` trong khi docstring/comment T2
+  nói "chạy trên draft" → nay nối vào `validate()` (kèm skip dòng chưa có `return_line`, nếu không
+  filter `''` khớp chính dòng hoá đơn gốc) và T2 assert **đúng lý do**. Bằng chứng: **P0 `9/9`,
+  P1A `8/8`, P1B `9/9`, P1C `10/10`, P1D `7/7`** (T7 mới); mutation-check: tắt guard → T7 đỏ
+  `6/7`, khôi phục → `7/7` và file sinh ra **byte-identical** với trước mutation. Cầu nối aki-MCP
+  phải dựng lại vì `/tmp` mất giữa phiên (đã ghi vào skill). Vẫn **chờ duyệt commit** (task 12.7).
+  Chi tiết: `result_2026-09-17_0150.txt`, `design.md` D17 mục 4.
+- [2026-09-16] Change `p0-feed-dealer-foundation` — **P1C xong, đã commit `7c62129`** (task
   11.9), `openspec validate` → "is valid". App `feed_dealer` trên site ERPNext **v16** của user
   (Mac, `frappe_docker`, site `frontend`), 19 DocType module `Feed Dealer` (0 custom).
   Đã commit: `7c62129` (P1C), `eb75222` (P0+P1A+P1B), `0355d6b` (vá refund/NULL), `0e89ce7` (bỏ
   track `__pycache__`).
-  Bằng chứng mới nhất (site thật, sau `clear-cache`): **P0 `9/9`, P1A `8/8`, P1B `9/9`, P1C `10/10`
-  — tất cả `ALL PASS`**. P1C gồm: gate hạn mức dùng chung (`credit_limit.py`, công thức v2.2
-  MUST-3) + hook Sales Order (`validate` đếm cả draft, `before_submit` row lock + re-check),
-  Credit Score controller (score/tier/limit deterministic, override chỉ Manager có audit), và
-  đóng **cả 2 lỗ hổng P1B** (hook `Unreconcile Payment`, row lock khi FIFO). Chi tiết + mọi quyết
+  Bằng chứng khi xong: **P0 `9/9`, P1A `8/8`, P1B `9/9`, P1C `10/10`**. Chi tiết + mọi quyết
   định: `design.md` D15/D16, `tasks.md` mục 11, `result_2026-09-16_1423.txt`.
 
 ## Chờ user quyết

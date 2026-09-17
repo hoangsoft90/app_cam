@@ -208,6 +208,47 @@ Decisions taken here (each was a real fork, recorded instead of guessed):
   the lock (T9) — the first version of that test only called the helper itself and stayed green
   even with the lock switched off, which the mutation run caught.
 
+### D17 — Sales Return: returned_amount is DERIVED from credit-note lines, one writer
+
+P1D (Sales Return Request → credit note → `Batch Debt.returned_amount`) reuses the P1B pattern
+where the derived figure has exactly one writer, and extends it in four decisions:
+
+1. **The approval flow creates a REAL ERPNext return invoice** via `make_return_doc`
+   (`erpnext.controllers.sales_and_purchase_return`) — the same mapper the Desk UI uses: qty is
+   NEGATIVE per line, each row carries `sales_invoice_item` back to its origin, so ERPNext's own
+   `validate_returned_items` counts prior returns and refuses an over-return. `return_against` is
+   mandatory; ERPNext posts the note against the original invoice at AR level (measured on this
+   site: the original's outstanding column is untouched, the note posts -net against itself, the
+   customer's AR truth is the NET at GL). This layer only mirrors that onto the batch view.
+2. **`returned_amount` is computed, never stored twice:**
+   `BatchDebt.calculate_derived_fields()` derives `-1 * SUM(net_amount)` of submitted return-note
+   lines whose custom field `batch_debt` names this debt. Line net amounts are negative, so the
+   stored figure is POSITIVE and `outstanding = allocated - paid - returned` works unchanged
+   (the sign bug — storing the negative SUM — was caught by hand-computing T1 before the first
+   run). Cancelling a note drops its lines from the SUM and the debt reopens (T5).
+3. **One request returns ONE invoice.** `_validate_items` collects each row's debt invoice and
+   refuses any mixed set: a note is built from a single `return_against`, so mixed rows would be
+   silently dropped while the request still approved (P1A-T6-shaped money loss). Covered by T6,
+   which asserts the refusal REASON and whose mutation run proved the guard has teeth.
+4. **A return may not be worth more than the debt still owes.** The quantity guard
+   (`_validate_over_return`) compares only against the original line's quantity, so a debt the
+   customer already part-paid could still be returned in full and drive `outstanding = allocated
+   - paid - returned` NEGATIVE (measured shape: allocated 1,000,000, paid 600,000, return 500,000
+   → -100,000). That is not cosmetic: `Feed Batch.total_debt` goes negative and P1C's credit-limit
+   sum then *reduces* the customer's debt and inflates the available limit.
+   `_validate_value_vs_outstanding` refuses it per debt (summing each debt's return value against
+   its remaining outstanding) and is wired in BOTH call paths — `validate()` on a Draft (what the
+   docstring promised, and what the T2 comment assumed) and `approve()` (so a caller that skips
+   the draft save cannot slip past). Covered by T7; disabling the guard turned T7 red (6/7) and
+   restoring it returned 7/7 ALL PASS.
+
+5. **The approval stamp lands after the note exists, in ONE save** (status + reference +
+   `batch_debt_adjusted` together — the fields are `allow_on_submit` because the request paper is
+   submitted first). A failed stamp rolls the note back: there is no persisted state where
+   approval and money disagree. Cancel rules: request-cancel is blocked while its note is alive
+   (`before_cancel`), note-cancel is allowed via `cancel_credit_note` (`ignore_links`, the P1B
+   pattern) and reopens the debts through the derived-field path.
+
 ## Risks / Trade-offs
 
 - [Deploying to a live site that other people and apps are using] → Every master step is create-if-absent and name-resolved; nothing is renamed, re-parented or deleted; the only writes are new DocTypes, new roles/masters and acceptance fixtures named `P0-ACCEPT…`, which `cleanup()` removes.

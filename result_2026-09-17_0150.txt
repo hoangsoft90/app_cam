@@ -1,0 +1,86 @@
+# RESULT — Review P1D lần cuối: 2 phát hiện, đã vá + verify trên site thật
+
+Ngày: 2026-09-17 01:50 (giờ local)
+Site: ERPNext v16 (frappe_docker trên Mac, site `frontend`), app `feed_dealer`
+
+## Status: DONE (code + test xanh; CHỜ USER DUYỆT COMMIT — task 12.7)
+
+## Bối cảnh
+
+User yêu cầu: (1) đóng gói lỗi-tự-sửa của phiên vào skill để không tái phạm, (2) review code
+P1D lần cuối tìm lỗ hổng (sai logic / crash / UI kẹt). Cầu nối aki-MCP phải **dựng lại đầu
+phiên** vì `/tmp` của sandbox bị xoá trắng (`/tmp/mcp_access_token`, `/tmp/aki-state/` đều mất).
+
+## Phát hiện + cách xử lý
+
+### F2 — guard có docstring nói "chạy trên draft" nhưng KHÔNG hề được nối (đã vá)
+
+`_validate_over_return` (trả vượt số lượng so với dòng gốc) có docstring "this check runs
+EARLIER, on the draft" và comment T2 cũng nói "our draft-side check refuses the insert" —
+nhưng **call site duy nhất là `approve()`**. Nối vào `validate()` (Draft) với điều kiện **skip
+dòng chưa có `return_line`**: nếu không, filter `sales_invoice_item: ""` khớp chính các dòng
+hoá đơn gốc (chúng có field này rỗng) và sẽ chặn **mọi** draft.
+
+Đồng thời **cứng hoá T2**: trước đây T2 chỉ assert "có exception" nên PASS kể cả khi lỗi đến từ
+guard khác (hoặc bug fixture) — đúng bài học "test xanh vì sai lý do". Nay T2 assert chuỗi
+`chưa được trả` trong message.
+
+### F1 — thiếu guard GIÁ TRỊ (lỗ hổng tiền, user đã chốt "chặn") (đã vá)
+
+Guard cũ chỉ so **số lượng** với dòng gốc. Với nợ đã trả một phần: allocated 1.000.000, khách
+trả 600.000 → outstanding 400.000; trả lại 5/10 đơn vị = 500.000 vẫn QUA → `outstanding =
+allocated − paid − returned = 1.000.000 − 600.000 − 500.000 = −100.000`. Hệ quả: status thành
+"Đã trả", `Feed Batch.total_debt` **âm**, và P1C cộng `outstanding` nên **thổi hạn mức khả dụng**.
+
+Đã thêm `_validate_value_vs_outstanding(request)`: gộp giá trị trả lại **theo từng khoản nợ**,
+so với `outstanding_amount` còn lại, chặn ở cả 2 đường — `validate()` (Draft) và `approve()`.
+Chạy SAU `_validate_amounts` vì cần amount đã recompute.
+
+## Bằng chứng (site thật, sau clear-cache + xoá pycache)
+
+```
+P0  ACCEPTANCE: ALL PASS   TOTAL 9   PASS 9   FAIL 0
+P1A ACCEPTANCE: ALL PASS   TOTAL 8   PASS 8   FAIL 0
+P1B ACCEPTANCE: ALL PASS   TOTAL 9   PASS 9   FAIL 0   (ghi log /tmp/p1b.log, === EXIT 0 ===)
+P1C ACCEPTANCE: ALL PASS   TOTAL 10  PASS 10  FAIL 0
+P1D ACCEPTANCE: ALL PASS   TOTAL 7   PASS 7   FAIL 0
+```
+
+- **T2 (mới)**: `refused (ValidationError: Dòng 1 (P1A-ACCEPT Item): trả lại 1 nhưng dòng gốc chỉ
+  còn 0 chưa được trả (gốc 10, đã trả trước đó 10).)` — PASS đúng lý do.
+- **T7 (mới)**: debt `DEBT-2026-03903` nợ 400.000 sau khi trả 600.000; trả lại 500.000 bị chặn
+  (`... khoản nợ chỉ còn 400.000 chưa thanh toán (khách đã trả một phần) ...`); `returned_amount`
+  vẫn 0.
+- **Mutation-check**: tắt cả 2 call site của guard mới → **T7 ĐỎ (6/7)**, các check khác vẫn xanh;
+  khôi phục → **7/7**, và file sinh ra **byte-identical** với bản trước mutation (`diff -q` pass).
+
+## Lệnh tái lập
+
+```bash
+python3 .agent/gen_feed_dealer.py && python3 .agent/gen_feed_dealer.py --check   # 58/58 match
+python3 .agent/push_to_mac.py apps/feed_dealer /Users/hoang/htdocs/erpnext/app_cam feed_dealer
+# xoá __pycache__ trong container + clear frappe cache (script tự xoá)
+python3 .agent/bench.py --site frontend --capture execute feed_dealer.setup.p1d_acceptance.run
+# p1b dài → ghi log rồi đọc lại:
+python3 .agent/bench.py --site frontend --to-file /tmp/p1b.log execute feed_dealer.setup.p1b_acceptance.run
+```
+
+## Lessons rút ra phiên này (đã vào skill + LESSONS_LEARNED)
+
+1. Docstring không phải bằng chứng — phải `grep` **call site** của mọi guard (F2).
+2. Guard số lượng ≠ guard giá trị; invariant tiền phải có bound giá trị (F1).
+3. `--to-file` vào thư mục app (bind mount) → PermissionError; ghi `/tmp` trong container và đọc
+   bằng `docker exec ... python3 -c "print(open('/tmp/x.log').read()[-N:])"` (allowlist bỏ `"`).
+4. `/tmp` sandbox mất mỗi phiên → dựng lại cầu nối: `/tmp/aki-state/credentials.json` (từ chat)
+   + `python3 .agent/akimcp.py export` (ghi `/tmp/mcp_access_token` + `/tmp/mcp_env.sh`).
+
+## Commit
+
+- CHỜ DUYỆT (sales-return chạm tiền + đổi luật nghiệp vụ). Đề xuất message:
+  `fix(feed_dealer): P1D value guard on returns + enforce over-return on draft`
+
+## Artifacts
+
+- `design.md` D17 (thêm mục 4 — value guard), `tasks.md` 12.6 (P1D 7/7) + 12.8 mới,
+  `working.md`, `LESSONS_LEARNED.md` (24–27), skill `erpnext-v16-pitfalls`
+  (3.3 mở rộng, 4 mở rộng, 6.1 mở rộng), `p1d_acceptance.py` (T2 cứng hoá + T7 + cleanup PE).

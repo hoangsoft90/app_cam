@@ -3,6 +3,37 @@ from frappe.model.document import Document
 from frappe.utils import date_diff, flt, getdate, nowdate
 
 
+def _returned_sum(debt_name):
+	"""POSITIVE total returned against this debt, from submitted credit notes.
+
+	Lives here, not in another module: the DocType controller is imported by
+	frappe's sync/orphan scan (`get_controller`) on EVERY migrate, and any
+	ImportError here makes frappe treat the DocType as orphaned code and DELETE
+	its DocType record (measured: one wrong import path wiped the Batch Debt
+	DocType while leaving the data table intact). Zero app-internal imports in
+	DocType controllers is the safe rule.
+
+	Sign: return-invoice line net amounts are NEGATIVE (make_return_doc negates
+	qty), so the stored value is `-1 * SUM(net_amount)` -- a POSITIVE number.
+	`outstanding = allocated - paid - returned` then drops when goods come back
+	and rises back when a credit note is cancelled (its lines stop counting).
+	One source of truth: nothing else stores a second copy of the figure
+	(P1D prompt item 2), and every recalculation path converges here.
+	"""
+	if not debt_name:
+		return 0.0
+	result = frappe.get_all(
+		"Sales Invoice Item",
+		filters={
+			"parenttype": "Sales Invoice",
+			"batch_debt": debt_name,
+			"docstatus": 1,
+		},
+		fields=[{"SUM": "net_amount", "as": "returned"}],
+	)
+	return -flt(result[0].returned) if result else 0.0
+
+
 class BatchDebt(Document):
 	"""Allocation layer only.
 
@@ -39,9 +70,9 @@ class BatchDebt(Document):
 		otherwise an overdue debt can be persisted with status "Chưa trả".
 		"""
 		self.paid_amount = self._get_paid_from_allocations()
-		# `returned_amount` is fed by credit notes (P1D); it is read-only here so
-		# the only legitimate writer is the controller once returns land.
-		self.returned_amount = flt(self.returned_amount)
+		# P1D: derived from submitted return-invoice lines (see `_returned_sum`).
+		# Stored POSITIVE; only this controller writes the field.
+		self.returned_amount = self._get_returned_from_credit_notes()
 		self.outstanding_amount = flt(self.allocated_amount) - flt(self.paid_amount) - flt(
 			self.returned_amount
 		)
@@ -86,3 +117,14 @@ class BatchDebt(Document):
 			fields=[{"SUM": "paid_amount", "as": "total"}],
 		)
 		return flt(result[0]["total"]) if result else 0.0
+
+	def _get_returned_from_credit_notes(self):
+		"""P1D: POSITIVE total returned, derived from submitted credit-note lines.
+
+		`outstanding = allocated - paid - returned` subtracts it and rises back
+		when a credit note is cancelled (its lines stop counting). Every
+		recalculation path converges here -- one source of truth, no second copy.
+		"""
+		if self.is_new() or not self.name:
+			return 0.0
+		return _returned_sum(self.name)

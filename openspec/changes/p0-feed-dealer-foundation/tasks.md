@@ -219,3 +219,47 @@ keeps describing what actually shipped.
   *Evidence:* `7c62129` — 19 files, +1857/−64 (code + tests + artifacts). Approved by the user after
   the RESULT report; the credit limit is a hard business limit plus an authorisation rule, so the
   commit only landed after explicit sign-off.
+
+## 12. Phase 1 — P1D (Sales Return → returned_amount on Batch Debt)
+
+- [x] 12.1 Schema: `Sales Return Item` gains `return_line` (Link → Sales Invoice Item) and
+  `batch_debt` (Link → Batch Debt); `Sales Return Request` gains the audit block
+  (`credit_note_reference`, `batch_debt_adjusted`, `approved_by/at` — `allow_on_submit=1` because
+  the request paper is submitted before approval). Custom fields on the credit note
+  (`batch_debt` on Sales Invoice Item, `feed_dealer_return_request` on Sales Invoice) ship via
+  `custom_field.json` + `custom_fields.py`, synced by `after_migrate`.
+  *Evidence:* generator writes 58/58 files matching disk (`--check`); migrate EXIT 0, no orphan
+  warnings; `Batch Debt` DocType verified present after sync.
+- [x] 12.2 `returned_amount` is DERIVED (one source of truth):
+  `calculate_derived_fields()` sums submitted return-note lines naming the debt (net amounts are
+  negative, stored figure POSITIVE), and `payment_entry._recalculate` persists it
+  (`returned_amount` joined `DERIVED_FIELDS` — omitting it there silently dropped the write,
+  measured).
+  *Evidence:* `P1D T1` — returned 500,000 → `returned_amount=+500,000`, outstanding 1,000,000 →
+  500,000, AR net proven at 500,000 from both voucher columns.
+- [x] 12.3 Approve flow: draft validation (items, ownership, return_line required, amounts
+  recomputed from the original line, over-return pre-check) → real credit note via
+  `make_return_doc` → per-line `batch_debt` mapping → submit → single approval-stamp save with
+  rollback on failure. Reject: status only.
+  *Evidence:* `P1D T1` (approve + AR net), `T3` (draft/rejected → 0 notes, debts untouched).
+- [x] 12.4 Cancel rules: request-cancel blocked while its note is alive (`before_cancel`);
+  `cancel_credit_note` API cancels the note with `ignore_links` and reopens the debts.
+  *Evidence:* `P1D T5` — cancelled note → debt back to 1,000,000, `returned_amount=0`.
+- [x] 12.5 One request returns ONE invoice: `_validate_items` refuses mixed-invoice requests
+  (a single `return_against` would silently drop the other invoice's lines).
+  *Evidence:* `P1D T6` — refusal asserts the hoá-đơn message; mutation run (guard disabled)
+  turned T6 red, guard restored, suite green again.
+- [x] 12.6 Regression + generator integrity: P0 9/9, P1A 8/8, P1B 9/9, P1C 10/10, P1D 7/7 —
+  all `ALL PASS` with `=== EXIT 0 ===`. Generator now embeds ALL real controllers
+  (`credit_score`, `collateral` included) and refuses to stamp a generic skeleton over real code
+  (guard smoke-tested).
+- [x] 12.7 Commit P1D.
+  *Evidence:* pending user approval — sales-return touches money; commit lands after sign-off.
+- [x] 12.8 Value guard on returns (review finding): `_validate_value_vs_outstanding` refuses a
+  return whose value exceeds the debt's remaining outstanding — a part-paid debt could otherwise
+  end with a NEGATIVE outstanding that also inflates the P1C credit limit. The over-return guard
+  is now enforced on the DRAFT too (`validate()`), which is what its docstring already claimed;
+  `approve()` keeps its own call so a caller that skips the draft save cannot slip past.
+  *Evidence:* `P1D T7` — a debt owing 400,000 after a 600,000 payment refused a 500,000 return
+  with the right message; T2 now asserts its refusal REASON (`chưa được trả`) instead of accepting
+  any exception; mutation run (both guard calls disabled) → T7 red 6/7, restored → 7/7.

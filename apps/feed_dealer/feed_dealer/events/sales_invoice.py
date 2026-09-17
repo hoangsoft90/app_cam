@@ -82,7 +82,20 @@ def _refresh_batch_total(batch):
 
 
 def on_submit(doc, method=None):
-	"""Create one submitted Batch Debt per (batch, item_tax_template) group."""
+	"""Create one submitted Batch Debt per (batch, item_tax_template) group.
+
+	Return invoices (`is_return=1`) are NOT debts: they REDUCE debts. Their
+	mapping and recalculation live in
+	`feed_dealer.doctype.sales_return_request.sales_return_request`
+	(`on_return_note_submitted`), which this function hands them to. Creating a
+	debt for a credit note would double the customer's batch debt in the same
+	breath the credit note shrinks it (the note's copied rows carry
+	`custom_batch`, so the group loop below would happily allocate them).
+	"""
+	if doc.get("is_return"):
+		from feed_dealer.feed_dealer.doctype.sales_return_request import sales_return_request
+
+		return sales_return_request.on_return_note_submitted(doc, method=method)
 	groups = _group_items(doc)
 	if not groups:
 		return {"created": 0, "skipped_no_batch_rows": len(doc.items)}
@@ -156,9 +169,17 @@ def before_cancel(doc, method=None):
 def on_cancel(doc, method=None):
 	"""Cascade the cancel down to this invoice's Batch Debts.
 
+	Return invoices take a different exit: their debts must be RECALCULATED
+	(the cancelled note's lines stop counting), never cascade-cancelled — this
+	is the return's reversal path (p1d T5).
+
 	Guard re-checked first: a caller that skipped `before_cancel` (direct
 	on_cancel invocation) must never cascade a paid debt into oblivion.
 	"""
+	if doc.get("is_return"):
+		from feed_dealer.feed_dealer.doctype.sales_return_request import sales_return_request
+
+		return sales_return_request.on_return_note_cancelled(doc, method=method)
 	paid = _paid_debt_names(doc.name)
 	if paid:
 		frappe.throw(

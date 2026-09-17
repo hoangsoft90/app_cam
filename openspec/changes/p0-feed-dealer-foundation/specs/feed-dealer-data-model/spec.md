@@ -214,3 +214,32 @@ The system SHALL lock the customer's open `Batch Debt` rows (ordered oldest `due
 
 - **WHEN** one session holds the allocation's row lock and another session issues `SELECT … FOR UPDATE` on the same rows
 - **THEN** the second session fails with a lock-wait timeout and the allocation path is proven to request the lock during a real Payment Entry submit
+
+### Requirement: Sales returns reduce batch debt through a real credit note
+
+When a `Sales Return Request` is approved, the system SHALL create a submitted Sales Invoice with `is_return=1` against the original invoice via ERPNext's own return mapper, map each return line to its `Batch Debt`, and derive `returned_amount` on that debt as the positive total of submitted return-note line net amounts, so `outstanding = allocated − paid − returned` reflects goods actually returned while AR stays the source of truth.
+
+#### Scenario: A partial return reduces the debt exactly
+
+- **WHEN** an approved request returns part of an unpaid batch debt
+- **THEN** a submitted credit note exists against the original invoice, the debt's `returned_amount` equals the note's line net total (positive), the outstanding drops by that figure, and the batch total follows
+
+#### Scenario: An over-return is refused
+
+- **WHEN** a request returns more than the original invoice line minus prior returns
+- **THEN** the request is refused before any note is created and no debt goes negative
+
+#### Scenario: A draft or rejected request has no financial effect
+
+- **WHEN** a request stays draft or is rejected
+- **THEN** no credit note exists and no debt, batch total or AR figure moves
+
+#### Scenario: One request never spans two invoices
+
+- **WHEN** a request's lines map to batch debts of different original invoices
+- **THEN** the request is refused with an invoice-mismatch error, because a single credit note cannot represent both
+
+#### Scenario: Cancelling the credit note reopens the debt
+
+- **WHEN** a return note is cancelled through the provided API
+- **THEN** its lines stop counting, the debt's `returned_amount` returns to the remaining returns only, and the outstanding rises back to the pre-return figure

@@ -263,3 +263,16 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
 22. Test lock/bảo vệ phải quan sát **đường production** (spy/hook thật), không chỉ gọi lại helper.
 23. `@frappe.whitelist()` không kiểm quyền — hàm API dữ liệu riêng của khách phải tự
     `frappe.has_permission()`, fail closed.
+24. **Docstring không phải bằng chứng**: guard `_validate_over_return` ghi "chạy trên draft"
+    nhưng chỉ được gọi trong `approve()` — review phải `grep` **call site thực tế** của mọi hàm
+    guard, không tin comment (đã lệch suốt từ lúc viết P1D).
+25. **Guard số lượng ≠ guard giá trị**: invariant về TIỀN phải so cả giá trị, không chỉ số đếm.
+    Nợ đã trả một phần vẫn được trả đủ số lượng → `outstanding` âm → thổi hạn mức tín dụng của
+    P1C (nó cộng `outstanding`). Mọi chỗ cộng trừ tiền phải có bound giá trị tường minh.
+26. `bench --to-file <path trong thư mục app>` → **PermissionError** (bind mount repo thuộc user
+    khác). Ghi log vào `/tmp` **trong container**, đọc bằng
+    `docker exec <c> python3 -c "print(open('/tmp/x.log').read()[-N:])"` — allowlist của MCP bỏ
+    dấu `"`, dùng `'` bên trong là còn nguyên (đừng dựng path bằng `chr()`).
+27. `/tmp` của sandbox **mất mỗi phiên** ⇒ cầu nối aki-MCP không còn: dựng lại
+    `/tmp/aki-state/credentials.json` (từ chat) rồi `python3 .agent/akimcp.py export` để ghi
+    `/tmp/mcp_access_token` + `/tmp/mcp_env.sh` cho `bench.py`/`mac.py`/`push_to_mac.py` dùng lại.

@@ -65,6 +65,7 @@
    "default": "Draft",
    "in_list_view": 1,
    "in_standard_filter": 1,
+   "allow_on_submit": 1,
    "idx": 6
   },
   {
@@ -73,6 +74,7 @@
    "label": "approved_by",
    "options": "User",
    "read_only": 1,
+   "allow_on_submit": 1,
    "idx": 7
   },
   {
@@ -80,6 +82,7 @@
    "fieldtype": "Datetime",
    "label": "approved_at",
    "read_only": 1,
+   "allow_on_submit": 1,
    "idx": 8
   },
   {
@@ -88,6 +91,7 @@
    "label": "Hóa đơn điều chỉnh (credit note)",
    "options": "Sales Invoice",
    "read_only": 1,
+   "allow_on_submit": 1,
    "idx": 9
   },
   {
@@ -96,6 +100,7 @@
    "label": "Đã tính lại nợ theo lứa",
    "read_only": 1,
    "default": "0",
+   "allow_on_submit": 1,
    "idx": 10
   }
  ],
