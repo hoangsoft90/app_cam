@@ -1,4 +1,4 @@
-# checklist.md — trạng thái công việc P0 → P1F (cập nhật 2026-09-17)
+# checklist.md — trạng thái công việc P0 → P1G (cập nhật 2026-09-17)
 
 Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` chưa làm · `[?]` cần hỏi lại user
 
@@ -31,6 +31,20 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
 - [ ] Tài khoản Desk thật (Manager/Staff) + role `Driver` cho P2 — **cần chủ dự án** (mật khẩu/chính sách)
 - [ ] Ngưỡng hiệu năng + đo trên dữ liệu lớn — chưa đủ điều kiện đánh giá
 - [ ] **P0.5 import nợ đầu kỳ** — BẮT BUỘC trước go-live với dữ liệu khách thật (xem next.md)
+
+## B0b. Review round sau P1G (2026-09-17) — tự soát, tìm ra lỗi ở phần KIỂM CHỨNG
+
+- [x] Review code P1G: **không có lỗi trong code P1G/P1D**; tìm ra 2 lỗ hổng ở cách kiểm chứng, đã đóng bằng code
+- [x] `.agent/bench_wait.py` — **serialise** các lệnh bench dài: trước đây `debug` chạy khi `cleanup`
+      còn đang xoá ⇒ đọc DB **đang bị xoá dở** ⇒ `8/9` vô nghĩa (bằng chứng bị nhiễm do race)
+- [x] C9 giờ so **SỐ ĐÚNG** tài liệu với `shape` builder đã lưu (+ `ensure_dataset` dọn dataset dở
+      trước khi build lại) — đóng lỗ hổng "1 Sales Order lạc từ build chết, suite vẫn xanh"
+- [x] Lỗi tự gây do C9 bắt được và đã sửa: biến comprehension bị dùng lại làm biến vòng lặp
+      (`UnboundLocalError`); thêm assert số dòng SO→SI; `if not debt: continue` trước khi đọc cột nợ
+- [x] Tái xác minh trên revision đã review (dùng `bench_wait` + `clear-cache`): **P1G INTEGRITY 9/9** ·
+      **P1G REPORTS 4/4** · **P1D 8/8** (log `/tmp/rv2_{p1g,rep,p1d}.log`); số liệu trùng khớp bản đã commit
+- [x] Đóng gói bài học: skill §8 + `LESSONS_LEARNED.md` 42b–46 (race `--to-file`, so số giữa 2 lần chạy,
+      exact counts, 2 bẫy Python/Frappe, lỗi từ app khác)
 
 ## B. Change `p0-feed-dealer-foundation` (44/46 task, `openspec validate` OK)
 

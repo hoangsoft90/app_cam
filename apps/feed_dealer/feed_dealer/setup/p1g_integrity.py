@@ -212,6 +212,13 @@ def _order_invoice(customer, lines, due_days=15):
 	frappe.db.commit()
 
 	inv = frappe.get_doc(make_sales_invoice(order.name))
+	# `zip` truncates silently: if the mapper ever returns a different number of
+	# rows, some lines would keep an empty batch and quietly produce fewer debts,
+	# weakening the dataset without failing anything.
+	if len(inv.items) != len(lines):
+		raise AssertionError(
+			f"mapper produced {len(inv.items)} invoice line(s) for {len(lines)} order line(s)"
+		)
 	inv.due_date = add_days(nowdate(), due_days)
 	for line, mapped in zip(lines, inv.items):
 		mapped.custom_batch = line.get("batch")
@@ -328,6 +335,10 @@ def build_dataset(count=TRANSACTIONS, seed=SEED):
 				debt = frappe.db.get_value(
 					"Batch Debt", {"sales_invoice": inv.name, "batch": line["batch"]}, "name"
 				)
+				if not debt:
+					# No debt for that pair means the invoice never created one (e.g. an
+					# accessory line): skip before reading its columns, not after.
+					continue
 				# The return must clear BOTH guards: qty <= the original line's qty and
 				# amount <= what that debt still owes (P1D value guard). A receipt or an
 				# offset may already have drained it, so the max qty is derived from the
@@ -335,7 +346,7 @@ def build_dataset(count=TRANSACTIONS, seed=SEED):
 				outstanding = flt(frappe.db.get_value("Batch Debt", debt, "outstanding_amount"))
 				rate = flt(row.rate)
 				max_qty = min(int(line["qty"]), int(outstanding // rate) if rate else 0)
-				if debt and max_qty >= 1:
+				if max_qty >= 1:
 					candidates.append((index, row, line, debt, max_qty))
 			if candidates:
 				index, row, line, debt, max_qty = rng.choice(candidates)
@@ -445,7 +456,6 @@ def _facts():
 		"TG": sum(flt(row.grand_total) for row in invoices),
 		"TE": sum(flt(row.outstanding_amount) for row in invoices),
 		"TT": sum(flt(row.tracked) for row in invoices),
-		"TE_notes": sum(flt(row.outstanding_amount) for row in invoices if row.is_return),
 		"TT_notes": sum(flt(row.tracked) for row in invoices if row.is_return),
 		"BD": sum(flt(row.outstanding_amount) for row in active),
 		"PA": sum(flt(row.paid_amount) for row in allocations if row.docstatus == 1),
@@ -666,6 +676,30 @@ def check_dataset_shape():
 		missing.append("no returned_amount on any debt")
 	if missing:
 		raise AssertionError("dataset too degenerate to prove anything: " + "; ".join(missing))
+
+	# EXACT counts against what the builder recorded, not just "enough rows":
+	# leftovers from a crashed build used to sit in the dataset unnoticed (one
+	# extra submitted Sales Order), and a green run then rested on documents the
+	# shape counters never claimed. Any extra or missing document is a red check.
+	shape = json.loads(frappe.db.get_default("feed_dealer_p1g_dataset") or "{}")
+	expected = {
+		"invoices": shape.get("transactions", 0) + shape.get("returns", 0),
+		"sales_orders": shape.get("orders", 0),
+		"receipts": shape.get("receipts", 0),
+		"credit_notes": shape.get("returns", 0),
+	}
+	actual = {
+		"invoices": invoice_count,
+		"sales_orders": order_count,
+		"receipts": payment_count,
+		"credit_notes": note_count,
+	}
+	if expected != actual:
+		raise AssertionError(
+			f"the dataset on the site is not the dataset the builder recorded: expected {expected}, "
+			f"found {actual} - leftovers from a crashed/partial build, or documents created outside "
+			f"the builder. Run `p1g_integrity.cleanup` and rebuild before trusting the numbers."
+		)
 	reported = frappe.db.get_default("feed_dealer_p1g_dataset") or "{}"
 	return (
 		f"{invoice_count} invoice(s) ({note_count} credit note), {order_count} SO->SI, "
@@ -727,8 +761,20 @@ def ensure_dataset(count=TRANSACTIONS):
 	# exist" would look like "the dataset exists" while zero invoices were ever
 	# made, and every identity check would pass against an empty database. The
 	# marker is written only after a build that ran to completion.
+	#
+	# A PARTIAL build (customers present, marker missing) is cleaned before the
+	# rebuild, and this is not cosmetic: a retry on top of the leftovers of a
+	# crashed build produced a dataset with one EXTRA submitted Sales Order that
+	# the shape counters never recorded, because the crash happened between the
+	# order's submit and the invoice raised from it. The run still went green — the
+	# identities do not involve a stray order — which is exactly why the counters
+	# now have to be exact (check_dataset_shape) and the rebuild has to start clean.
 	marker = frappe.db.get_default("feed_dealer_p1g_dataset_built")
-	if os.environ.get("FEED_DEALER_P1G_REBUILD") == "1" or not marker:
+	force = os.environ.get("FEED_DEALER_P1G_REBUILD") == "1"
+	if not marker and not force and _customers():
+		print("[feed_dealer] partial P1G dataset detected (no build marker) - cleaning before rebuild")
+		cleanup()
+	if force or not marker:
 		shape = build_dataset(count=count)
 		frappe.db.set_default("feed_dealer_p1g_dataset", json.dumps(shape, ensure_ascii=False))
 		frappe.db.set_default("feed_dealer_p1g_dataset_built", "1")

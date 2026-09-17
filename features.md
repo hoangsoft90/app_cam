@@ -1,4 +1,4 @@
-# features.md — tính năng hiện có & tương lai (cập nhật 2026-09-16)
+# features.md — tính năng hiện có & tương lai (cập nhật 2026-09-17)
 
 Nguồn tổng hợp: `.plan/plan_final*.md` + v2.1/v2.2/v2.3 patches, OpenSpec change `p0-feed-dealer-foundation`, app `apps/feed_dealer`.
 
@@ -56,6 +56,18 @@ Nguồn tổng hợp: `.plan/plan_final*.md` + v2.1/v2.2/v2.3 patches, OpenSpec 
 | Script integrity | `feed_dealer.setup.p1g_integrity` — sinh dataset thật (seed cố định) rồi kiểm 2 đẳng thức tiền tuyệt đối (dung sai 0 đồng); có `cleanup()` để dọn |
 | Exit Gate Phase 1 | `EXIT_GATE_PHASE1.md` — 7 tiêu chí DoD, ghi rõ tiêu chí nào PASS bằng chứng nào, tiêu chí nào NOT ASSESSABLE |
 | Chưa làm (thuộc P1G nhưng cần bên ngoài) | Tài khoản Desk thật + role `Driver` (P2); ngưỡng & đo hiệu năng dữ liệu lớn |
+
+### 1i. Review round sau P1G — cứng hóa KIỂM CHỨNG (2026-09-17)
+
+Review **không** tìm ra lỗi trong code P1G/P1D, nhưng tìm ra 2 lỗ hổng ở cách kiểm chứng và đã đóng bằng code:
+
+| Vấn đề | Cách đóng |
+|---|---|
+| Gọi lệnh `bench` kế tiếp ngay sau `--to-file` là **race**: `debug` đọc DB khi `cleanup` còn đang xoá ⇒ `8/9` vô nghĩa | `.agent/bench_wait.py` — chờ đúng dòng `=== EXIT n ===` của lần chạy đó rồi mới trả về (serialise) |
+| Fixture kiểm bằng "đủ dòng" ⇒ 1 Sales Order lạc từ build chết vẫn để suite xanh | Check `C9` so **số đúng** (hoá đơn/SO/phiếu thu/credit note) với `shape` builder đã lưu; `ensure_dataset` dọn dataset dở trước khi build lại |
+| Mutation-check / lỗi tự gây | C9 bắt được lỗi biến comprehension trùng tên (`UnboundLocalError`) — đã sửa + thêm assert số dòng SO→SI |
+
+Tái xác minh trên revision đã review: `P1G INTEGRITY 9/9` · `P1G REPORTS 4/4` · `P1D 8/8` (log `/tmp/rv2_{p1g,rep,p1d}.log`).
 
 ## 2. Tương lai — theo plan & phase
 

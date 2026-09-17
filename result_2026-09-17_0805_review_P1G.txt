@@ -1,0 +1,73 @@
+# RESULT — Review round sau P1G (2026-09-17 08:05)
+
+Status: DONE
+Phạm vi: review code P1G/P1D + cứng hóa cách kiểm chứng
+Site: ERPNext v16 `frontend` (Mac, qua MCP bridge) — không hard-code, không mock
+
+## Kết luận review
+
+**Không có lỗi trong code P1G/P1D.** Review tìm ra 2 lỗ hổng ở **cách kiểm chứng**, không phải ở
+logic tiền — cả hai đã được đóng **bằng code**, không phải bằng lời.
+
+## 2 lỗ hổng kiểm chứng — đã đóng
+
+### H1. Race giữa các lệnh bench dài (`--to-file`)
+`--to-file` chỉ ghi log khi lệnh trong container kết thúc, nhưng call MCP có thể trả về sớm hơn ⇒
+gọi `debug` ngay sau `cleanup` khiến nó đọc DB **đang bị xoá dở** (60 hoá đơn, 0 credit note,
+0 offset, marker còn nguyên) và C9 báo "dataset thoái hoá" — một `8/9` không nói gì về code.
+
+- Đo được: builder trên site sạch vẫn cho `returns=10, offsets=3` (không phải code sai).
+- Dấu hiệu nhận biết bằng chứng bị nhiễm: PA/ER **giống hệt** lần trước (số độc lập với thay đổi),
+  còn đúng nhóm RT/OF về 0 ⇒ **dataset khác**, không phải logic khác.
+- Cách đóng: `.agent/bench_wait.py <log> <bench args>` — poll tới khi log có dòng `=== EXIT n ===`
+  của chính lần chạy đó rồi mới trả về (serialise).
+
+### H2. Fixture kiểm bằng "đủ dòng" thay vì số đúng
+Một lần build chết vì hook `Sales Invoice.on_submit` của **app khác** (`custom_app`) để lại 1 Sales
+Order đã submit; retry build đè lên rác đó ⇒ DB có **13 SO trong khi builder khai 12**, mà suite vẫn
+**xanh** (đẳng thức tiền không liên quan tới đơn lẻ loi).
+
+- Cách đóng: check `C9` (`check_dataset_shape`) so **số ĐÚNG** hoá đơn / SO / phiếu thu / credit note
+  với `shape` builder đã lưu; `ensure_dataset` **dọn dataset dở** (customers có, marker thiếu) trước
+  khi build lại.
+
+## Lỗi tự gây (do C9 bắt được) — đã sửa
+
+| Lỗi | Sửa |
+|---|---|
+| Biến comprehension (`index`) bị dùng lại làm biến vòng lặp ở dưới ⇒ `UnboundLocalError` | đổi tên, tách rõ scope |
+| `zip(lines, inv.items)` truncate âm thầm — mapper trả ít dòng hơn order thì dòng thiếu `custom_batch`, dataset yếu đi mà không fail | thêm `AssertionError` nếu `len(inv.items) != len(lines)` |
+| Đọc cột của `debt` trước khi kiểm `debt` tồn tại | `if not debt: continue` **trước** khi đọc |
+| `p1g_reports_check.py` tự viết lại table renderer | dùng chung `Report()` của `p1b_acceptance` (p1c/p1d/p1f cũng dùng) — hết drift format |
+
+## Bằng chứng tái xác minh (revision đã review)
+
+Thứ tự: push content-verified → `clear-cache` → chạy qua `bench_wait`:
+
+```
+/tmp/rv2_p1g.log   P1G INTEGRITY: ALL PASS   9/9
+                   C1  BD 11.289.000 == TT 156.345.000 − PA 143.851.000 − OF 1.205.000   (diff 0)
+                   C7  diff −121.467.000, phân rã đúng 4 nhóm, residual 0
+                   C9  exact counts: 70 invoices / 12 SO / 45 receipts / 3 offset JEs == shape
+/tmp/rv2_rep.log   P1G REPORTS: ALL PASS     4/4
+/tmp/rv2_p1d.log   P1D: ALL PASS             8/8
+```
+
+Số liệu trùng khớp bản đã commit `770be4e` (không có regression từ các thay đổi review).
+
+## Ghi chú
+
+- Dataset P1G vẫn còn trên site: dọn bằng `bench execute feed_dealer.setup.p1g_integrity.cleanup`
+  sau khi chủ dự án review số thủ công.
+- **Số liệu chờ quyết định (không đổi):** `ER 41.372.500` vs `PA 143.851.000` ⇒ gap **−102.478.500**
+  (31/45 phiếu thu để trống `references`) — agent KHÔNG tự sửa cơ chế FIFO.
+- AgentMemory ở sandbox vẫn không phản hồi (`/health` rỗng) ⇒ không ghi được memory; quyết định nằm
+  trong `design.md` **D26** (đã commit cùng docs này).
+
+## Nơi lưu vết
+
+- `openspec/changes/p0-feed-dealer-foundation/design.md` — **D26** (Evidence discipline)
+- `openspec/changes/p0-feed-dealer-foundation/tasks.md` — mục **14c**
+- `.agents/skills/erpnext-v16-pitfalls/SKILL.md` — §8
+- `LESSONS_LEARNED.md` — mục 42b–46
+- `faq.md` — 10f, 10g · `checklist.md` — B0b · `next.md` — 1c · `features.md` — 1i

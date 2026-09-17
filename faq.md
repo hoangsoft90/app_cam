@@ -1,4 +1,4 @@
-# faq.md — thắc mắc, hiểu sai & giải thích (cập nhật 2026-09-16)
+# faq.md — thắc mắc, hiểu sai & giải thích (cập nhật 2026-09-17)
 
 ## 1. Vì sao vẫn còn 12 cột lạ trên `Batch` của ERPNext?
 
@@ -100,6 +100,27 @@ im lặng bỏ qua — đo được: `tabReport.query` vẫn là bản cũ dù f
 `v1_0/reimport_reports` gọi `frappe.reload_doc(..., force=True)`, idempotent, chạy mỗi migrate. Kèm
 một bẫy nữa: Query Report **phải bắt đầu bằng `SELECT`** — comment `--` ở đầu bị
 `check_safe_sql_query` từ chối.
+
+## 10f. Vừa sửa code xong là một loạt check đỏ — có phải tôi vừa gây regression?
+
+**Chưa chắc.** Lần review P1G đã gặp đúng ca này: sau khi sửa `p1g_integrity.py`, chạy lại ra `8/9`
+(C9 báo "dataset thoái hoá" — 0 return, 0 offset) và rất dễ kết luận code mới tự gây lỗi. Sự thật:
+**bằng chứng bị nhiễm**. `--to-file` chỉ ghi log khi lệnh trong container kết thúc, nhưng call MCP có
+thể trả về sớm hơn ⇒ `debug` chạy khi `cleanup` **còn đang xoá** và đọc một dataset bị xoá dở.
+
+Dấu hiệu nhận biết: những con số **lẽ ra độc lập** với thay đổi của mình (PA, ER) **giống hệt** lần
+trước, còn đúng nhóm số liên quan bị mất sạch (RT/OF = 0) ⇒ **dataset khác**, không phải logic khác.
+Builder chạy trên site sạch vẫn cho `returns=10, offsets=3`. Kết luận: **chỉ được sửa code sau khi tái
+lập được bằng chứng sạch**; dùng `.agent/bench_wait.py <log> <bench args>` (chờ dòng `=== EXIT n ===`)
+để serialize các lệnh bench dài.
+
+## 10g. Làm sao biết bộ test đang chạy đúng "dataset của tôi" mà không phải rác từ lần build chết?
+
+Một lần build chết vì hook `Sales Invoice.on_submit` của **app khác** (`custom_app`) để lại 1 Sales
+Order đã submit; lần retry build đè lên rác đó ⇒ DB có **13 SO trong khi builder khai 12**, mà suite
+vẫn **xanh** vì đẳng thức tiền không liên quan tới đơn lẻ loi. Nên fixture **phải kiểm bằng SỐ ĐÚNG**
+(hoá đơn / SO / phiếu thu / credit note) so với `shape` builder đã lưu — đó là việc của check `C9`, và
+`ensure_dataset` dọn dataset dở (đã có customer nhưng thiếu marker) trước khi build lại.
 
 ## 10. `open-code-review` (OCR) có chạy không?
 

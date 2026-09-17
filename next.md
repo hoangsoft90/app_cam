@@ -1,4 +1,4 @@
-# next.md — roadmap (cập nhật 2026-09-16 09:45)
+# next.md — roadmap (cập nhật 2026-09-17 08:05)
 
 ## Đã hoàn thành (P0 foundation — bằng chứng đầy đủ)
 
@@ -26,7 +26,8 @@
 
 ## Sắp tới — ngắn hạn
 
-1. **[x] P1G ĐÃ XONG (2026-09-17)** — integrity `9/9`, reports `4/4`, Exit Gate đã viết:
+1. **[x] P1G ĐÃ XONG (2026-09-17)** — integrity `9/9`, reports `4/4`, Exit Gate đã viết
+   (review round sau đó đã cứng hóa **cách kiểm chứng** — xem mục 1c):
    - Integrity: dataset 60 giao dịch (seed cố định) + 2 **đẳng thức tuyệt đối** (tolerance 0 VND):
      `BD = TT − PA − OF` và `BD − TE = (−U)+ER+(−PA)+(−OF)`. Bằng chứng: `P1G INTEGRITY: ALL PASS`
    - Dataset phát hiện **1 bug thật của P1D** (trả 1 dòng của hoá đơn nhiều dòng) → đã vá + thêm `T8`
@@ -34,6 +35,11 @@
    - **Số liệu CHỜ QUYẾT ĐỊNH:** FIFO phân bổ 143.851.000 nhưng ERPNext chỉ cấn trừ cấp hoá đơn
      41.372.500 (31/45 phiếu thu để trống `references`) ⇒ **gap −102.478.500**. Chủ dự án xem số rồi
      quyết có đổi cơ chế phân bổ hay không — agent chưa đụng vào FIFO
+1c. **[x] Review round sau P1G (2026-09-17)** — không có lỗi trong code P1G/P1D; đóng 2 lỗ hổng
+   kiểm chứng bằng code: `.agent/bench_wait.py` (serialise lệnh bench dài — hết race `--to-file`) và
+   `C9` so **số đúng** với `shape` (hết "SO lạc từ build chết mà suite vẫn xanh"). Tái xác minh:
+   P1G INTEGRITY 9/9 · P1G REPORTS 4/4 · P1D 8/8. Xem `result_2026-09-17_0805_review_P1G.txt` +
+   `openspec/.../design.md` **D26** + `tasks.md` **14c**.
 2. **[ ] Tài khoản Desk thật + role `Driver` (P2)** — cần chủ dự án cấp (hiện chỉ có user test
    `p0-acceptance-*` / `p1c-acceptance-*`); role Manager/Staff/Farmer đã tổn tại
 3. **[ ] Ngưỡng hiệu năng + đo dữ liệu lớn** — mục Performance của Exit Gate đang NOT ASSESSABLE
@@ -57,7 +63,7 @@
 | **P1D** | ✅ Sales Return Request → credit note thật → `returned_amount` DERIVED (commit `c5152dd`) | P1B ✓ |
 | **P1E** | ⛔ BLOCKED: e-invoice VN — cần sandbox provider + mã số thuế (không mock) | P1A ✓ |
 | **P1F** | ✅ Consent + Debt Confirmation Slip (print format) + Livestock offset (JE) + Batch tách/gộp bảo toàn nợ (commit `b48d723`) | P1A ✓ |
-| **P1G** | ⏳ Tiếp theo: 7 báo cáo Desk + script AR vs Batch Debt + Exit Gate Phase 1 | P1A–P1F (P1E blocked, phần e-invoice không chặn báo cáo) |
+| **P1G** | ✅ 7 báo cáo Desk + script AR vs Batch Debt (integrity 9/9) + Exit Gate Phase 1 (`EXIT_GATE_PHASE1.md`); review round đã cứng hóa kiểm chứng (D26) | P1A–P1F (P1E blocked, phần e-invoice không chặn báo cáo) |
 | **P2/P4** | App nhân viên (Flutter) + Zalo Mini App nông dân | P1A–B |
 | **P3** | AI: kill switch vận hành, voice→action, Action Item (read-only posture) | P1 + config |
 

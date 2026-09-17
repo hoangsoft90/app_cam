@@ -353,3 +353,21 @@ keeps describing what actually shipped.
   the phase look DONE while nothing about the real NĐ-123 flow is verified. Needs from the user: a
   provider choice (VNPT / Viettel / MISA), sandbox credentials, and the company tax code.
   See `result_P1E_BLOCKED_2026-09-17.txt`.
+
+## 14c. Review round after P1G (2026-09-17)
+
+- [x] 14c.1 Review found **no defect in the P1G/P1D code**; it found two holes in the VERIFICATION, both
+  closed in code (design D26):
+  (a) `.agent/bench_wait.py` — long bench calls are now serialised by waiting for that run's
+  `=== EXIT n ===` in the log; without it a `debug` ran while `cleanup` was still deleting and read a
+  half-deleted dataset (60 invoices / 0 credit notes / 0 offsets) → a meaningless `8/9`;
+  (b) C9 now compares EXACT document counts with the builder's persisted `shape`, and
+  `ensure_dataset` cleans a partial dataset before rebuilding — this closes the "one extra submitted
+  Sales Order left by a crashed build, suite still green" hole measured during the same review.
+- [x] 14c.2 Self-inflicted generator crash found by C9 and fixed: a comprehension variable reused as a
+  later loop variable (`UnboundLocalError`), plus an assertion on the SO→SI line count so a mapper
+  change cannot silently drop lines, plus `if not debt: continue` before reading a debt's columns.
+- [x] 14c.3 Re-verified on the reviewed revision (with `bench_wait`, after `clear-cache`):
+  `P1G INTEGRITY: ALL PASS 9/9` (C1 `BD 11.289.000 = TT 156.345.000 − PA 143.851.000 − OF 1.205.000`,
+  diff 0; C9 exact counts: 70 invoices / 12 SO / 45 receipts / 3 offset JEs == shape),
+  `P1G REPORTS: ALL PASS 4/4`, `P1D: ALL PASS 8/8` (log `/tmp/rv2_{p1g,rep,p1d}.log`).

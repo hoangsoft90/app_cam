@@ -20,6 +20,10 @@ import traceback
 
 import frappe
 
+# Same table renderer every other suite uses (p1c/p1d/p1f import it too), so the
+# output format does not drift from one acceptance script to the next.
+from feed_dealer.setup.p1b_acceptance import Report
+
 REPORTS = {
 	"debt_by_batch": "Nợ theo lứa (debt per batch)",
 	"overdue_batch_debts": "Nợ quá hạn (overdue debts)",
@@ -170,25 +174,14 @@ CHECKS = (
 
 
 def collect():
-	rows = []
+	report = Report()
 	for name, fn in CHECKS:
-		try:
-			detail = fn()
-			rows.append((name, True, detail or "ok"))
-		except Exception as exc:  # noqa: BLE001 - a failing check must not abort the suite
-			rows.append((name, False, f"{type(exc).__name__}: {exc}"))
-	width = max(len(name) for name, _ok, _d in rows)
-	lines = ["", f"{'CHECK'.ljust(width)}  RESULT  DETAIL", "-" * (width + 44)]
-	for name, ok, detail in rows:
-		lines.append(f"{name.ljust(width)}  {'PASS  ' if ok else 'FAIL  '}  {detail}")
-	failed = [name for name, ok, _ in rows if not ok]
-	lines.append("-" * (width + 44))
-	lines.append(f"TOTAL: {len(rows)}   PASS: {len(rows) - len(failed)}   FAIL: {len(failed)}")
-	return "\n".join(lines), failed
+		report.check(name, fn)
+	return report
 
 
 def run():
-	text, failed = collect()
+	text, failed = collect().render()
 	print(text)
 	print(json.dumps({"site": frappe.local.site, "failed": failed}))
 	if failed:

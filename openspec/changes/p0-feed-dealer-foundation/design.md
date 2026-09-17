@@ -364,6 +364,27 @@ drift. `patches/v1_0/reimport_reports.py` therefore calls `frappe.reload_doc(...
 every report; it is idempotent and runs on each migrate. Related: a Query Report's SQL must START with
 `SELECT`/`WITH`, so explanatory `--` comments have to sit after the `SELECT` keyword.
 
+### D26 — Evidence discipline: serialise bench calls, verify fixtures by exact counts
+
+A review round after P1G found **no defect in the P1G code** but two holes in how it was being
+verified, and both are now closed in code rather than in prose:
+
+* **Long bench calls must be serialised.** `--to-file` only writes its log when the container command
+  ends, while an MCP call can return earlier, so chaining a second command does not mean the first
+  finished. Measured: a `cleanup` was still deleting while the next `debug` ran, and the checks read a
+  half-deleted dataset (60 invoices, 0 credit notes, 0 offsets) — an `8/9` that said nothing about the
+  code. `.agent/bench_wait.py` polls until the log carries that run's `=== EXIT n ===`.
+* **Fixtures are verified by EXACT counts, not by "enough rows".** A build that died on another app's
+  hook left one submitted Sales Order behind; the retry built on top of it and the suite stayed GREEN
+  while the site held 13 orders against the 12 the builder recorded. C9 compares invoice / SO /
+  receipt / credit-note counts with the persisted `shape`; `ensure_dataset` also cleans a partial
+  dataset (customers present, build marker missing) before rebuilding, so a rebuild is reproducible.
+
+Consequence for how this project reports: a red suite right after an edit is not yet evidence of a
+regression until the dataset is shown to be the same one — the review compared the figures that should
+be independent of the edit (PA, ER) and found them unchanged to the đồng while the return-affected
+figures had gone to zero, which is what identified contaminated evidence rather than a code defect.
+
 ## Risks / Trade-offs
 
 - [The integrity dataset lives on the real site] → It is 60 seeded transactions under the
