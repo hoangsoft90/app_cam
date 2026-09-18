@@ -1,0 +1,118 @@
+# RESULT — VIỆC A/B/C (2026-09-17 16:15)
+
+Prompt: "VIỆC A vá tài liệu lệch nhịp · VIỆC B performance smoke test · VIỆC C dò môi trường P2".
+
+Status: **DONE** (A, B) · **DONE có caveat + báo trước** (C — môi trường build Android đã chứng minh,
+iOS BLOCKED vì không có Xcode)
+
+---
+
+## Quyết định đã chốt (không hỏi lại)
+
+FIFO vs `references`: **GIỮ NGUYÊN FIFO, không sửa.** Là hệ quả đúng của kiến trúc view-layer
+(Batch Debt là lớp view trên AR); `residual = 0` trên đẳng thức (2) chứng minh không mất/đúp tiền.
+Đã ghi vết **đóng** vào `EXIT_GATE_PHASE1.md` mục 3 + `next.md`.
+
+---
+
+## VIỆC A — tài liệu lệch nhịp
+
+| File | Sửa |
+|---|---|
+| `EXIT_GATE_PHASE1.md` | §0 thêm dòng bằng chứng P0.5 + perf · §3 ghi quyết định FIFO (đóng) · "Việc còn treo" bỏ P0.5/FIFO, thêm mục "Đã đóng" · §6 Performance viết lại bằng số thật · bảng kết luận 6/7 PASS |
+| `next.md` | mục "NỢ KỸ THUẬT BẮT BUỘC" P0.5 → "✅ ĐÃ ĐÓNG" · đóng mục chờ quyết định FIFO · P0.5 roadmap ✅ · mục Performance [x] |
+
+## VIỆC B — đo hiệu năng (dataset 2.000 giao dịch)
+
+Nguồn: `/tmp/perf_pilot.log` (100 giao dịch) và `/tmp/perf_big.log` (2.000).
+Code: `apps/feed_dealer/feed_dealer/setup/p1g_perf.py` (mới) + `p1g_integrity.py` (marker key thành biến module).
+
+```
+dataset 2.000 giao dịch (seed 20260917): 2.285 hoá đơn (285 credit note), 400 SO→SI,
+1.425 phiếu thu (400 có references / 1.025 trống), 127 phiếu thu vượt nợ, 163 offset JE,
+879 hoá đơn nhiều lứa, 537 hoá đơn 2 thuế suất.  build: 865,76 s (432,9 ms/giao dịch)
+
+(a) 1 Sales Invoice insert+submit :  486 ms (100 giao dịch) →  651 ms (2.000 giao dịch)
+(b) integrity AR vs Batch Debt    :  0,129 s / 9 check →  0,747 s / 9 check (9/9 PASS, C1 diff = 0)
+(c) reports:
+    debt_by_batch              0,137 s / 154 dòng
+    overdue_batch_debts        0,004 s / 15 dòng
+    payment_allocation_detail  0,029 s / 3.857 dòng
+    cash_flow_30_60_90         0,007 s / 71 dòng
+    batch_profit_loss          0,008 s / 154 dòng
+    customer_credit_limit      0,160 s / 40 dòng   ← chậm nhất (Script Report gọi credit_position())
+    approval_audit_log         0,007 s / 340 dòng
+```
+
+Đọc số: `on_submit` tăng 486 → 651 ms khi lịch sử khách tăng ~20× ⇒ **dưới tuyến tính**, không có N+1
+trong hook. Integrity < 1 s trên 2.285 hoá đơn. Chỗ cần để ý về sau (không tối ưu ngay):
+`customer_credit_limit` tính lại từng khách.
+
+`EXIT_GATE_PHASE1.md` §6: **NOT ASSESSABLE → PASS (with caveat)**. Caveat ghi rõ: 1 máy, single-process
+bench, chưa đo đồng thời nhiều user / DB bloat / EXPLAIN. **Agent không tự đặt ngưỡng SLA.**
+
+**Dọn dataset (bắt buộc, đã làm):** `p1g_perf.cleanup` — lần đầu thất bại vì frappe giới hạn
+`MAX_WRITES_PER_TRANSACTION = 200_000`, vượt ngưỡng ⇒ `TooManyWritesError` + rollback TOÀN BỘ
+(25 khách vẫn còn, log lại ghi "removed 592 fixture(s)"). Vá: `frappe.db.auto_commit_on_many_writes = True`.
+Xác nhận cuối bằng COUNT trên DB:
+
+```
+perf_cust = 0      (P1G-PERF% customers)
+perf_keys = 0      (feed_dealer_p1g_perf% Site Defaults)
+p1g_cust  = 6      → dataset P1G ĐƯỢC GIỮ NGUYÊN
+```
+
+## VIỆC C — dò môi trường P2 (Flutter) — báo trước khi code
+
+| Hạng mục | Kết quả |
+|---|---|
+| Flutter (sandbox) | ✅ **3.47.2** stable, Dart 3.13.2 (`/google/flutter`) |
+| Android SDK (sandbox) | ✅ đã cài đủ: platform-tools, platforms;android-35/36, build-tools;35/36, **NDK 28.2.13676358** — đặt tại `/opt/android-sdk` |
+| Gradle cache | ✅ `/opt/gradle-home` (bắt buộc: `/home` chỉ ~4,8 GB) |
+| **Build APK thật** | ✅ `flutter build apk --debug` trên project scratch → `app-debug.apk` **150 MB** |
+| Flutter (Mac) | ✅ có (`/Users/hoang/Softwares/flutter`) + Android SDK đầy đủ |
+| Xcode (Mac & sandbox) | ❌ **không có** ⇒ **BLOCKED: iOS/IPA** |
+| `Driver` role | đã tạo + tài khoản test (xem dưới) |
+
+⇒ **Kết luận môi trường:** đường **Android build được, đã có bằng chứng**; **iOS chặn thật** (cần Mac
+có Xcode + tài khoản ký; không tự cài được trong sandbox). Đây là "BLOCKED đúng cách" cho nửa iOS,
+không lách bằng cách viết code không build/test được.
+
+### Tài khoản test đã tạo (KHÔNG phải tài khoản thật)
+Role `Driver` + user test cho Driver/Staff để tự test app; chính sách mật khẩu + tài khoản thật vẫn
+để cho go-live checklist. (Chi tiết trong handoff.)
+
+## Review code — 2 lỗi thật đã tìm & vá (có bằng chứng)
+
+1. **`measure()` báo sai kích thước dataset**: đọc Site Default `..._perf_dataset` TRƯỚC bước
+   build/reuse nên run 2.000 giao dịch in `"dataset": {"transactions": 100, ...}` (số của lần pilot).
+   → đọc LẠI sau khi build + thêm `requested_transactions`. Xác minh: `requested_transactions: 60`
+   khớp `dataset.transactions: 60`.
+2. **`build()` bỏ qua guard "partial → clean"**: gọi thẳng `build_dataset` (không qua `ensure_dataset`
+   của P1G) ⇒ một build chết vì `QueueOverloaded` (hook `on_update` của **app khác** `custom_app`) để
+   lại 1 Sales Order lạc; lần build sau APPEND lên đó ⇒ C9 đỏ `expected 12, found 13`.
+   → thêm guard mirror `ensure_dataset`. **Xác minh thật** (tạo đúng trạng thái lỗi bằng cách xoá
+   marker): log `[perf] partial PERF dataset detected (no build marker) — cleaning before rebuild`
+   → build lại → `C9 PASS` → `TOTAL: 9 PASS: 9 FAIL: 0`.
+
+Regression sau thay đổi: **P1G INTEGRITY 9/9** · **P1G REPORTS 4/4** (site sạch, không tạo lại dataset)).
+
+## Bài học đã đóng gói
+
+`LESSONS_LEARNED.md` **51–56**; skill `.agents/skills/erpnext-v16-pitfalls/SKILL.md`:
+- **§3.4/3.5** — `rm -f /tmp/<log>` ở sandbox KHÔNG xoá log trong container (poll đọc log cũ ⇒ "DONE"
+  giả); dấu hiệu log cũ: **số dòng traceback lệch với file hiện tại** (`:195` vs `:201`).
+- **§3.6** — `bench execute --kwargs "{'count': 100}"` (Python literal, không phải JSON).
+- **§9** — bulk delete 1 transaction xoá 0 (`TooManyWritesError` + rollback) → `auto_commit_on_many_writes`;
+  `set_default(key,"")` để lại row rỗng; `mariadb -e` chạy safe-update (DELETE cần cột KEY);
+  hook app khác gây `QueueOverloaded`; builder APPEND phải tự dọn leftover.
+- **§10** — môi trường build Flutter/Android của sandbox (`/home` 4,8 GB → SDK/Gradle/NDK ở `/opt`;
+  NDK cài bằng zip trực tiếp; SDK 36 cho Flutter 3.47; không Xcode ⇒ chỉ Android).
+
+## Việc tiếp theo
+
+- **P2 (Internal Mobile)**: môi trường Android đã sẵn sàng — bắt đầu theo
+  `.plan/prompts/prompt_P2_internal_mobile.md` (1 codebase `mobile-dealer`, multi-role, cấm mutation
+  tài chính khi offline, server-wins, `idempotency_key` cho mọi create).
+- **iOS**: BLOCKED — cần Mac có Xcode (hoặc EAS Build với tài khoản Apple) để làm nửa còn lại.
+- P1E e-invoice: vẫn BLOCKED (provider sandbox).

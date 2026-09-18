@@ -1,4 +1,4 @@
-# next.md — roadmap (cập nhật 2026-09-17 08:05)
+# next.md — roadmap (cập nhật 2026-09-17 11:00)
 
 ## Đã hoàn thành (P0 foundation — bằng chứng đầy đủ)
 
@@ -15,14 +15,15 @@
 | 9 | P1A: Sales Invoice → Batch Debt (và vá idempotency theo nhóm thuế) | `TOTAL: 6 PASS: 6 FAIL: 0` (T1–T6) |
 | 10 | P1B: Payment Entry → Payment Allocation FIFO + cancel đảo ngược | `TOTAL: 6 PASS: 6 FAIL: 0` → `P1B ACCEPTANCE: ALL PASS` |
 
-## ⚠️ NỢ KỸ THUẬT BẮT BUỘC TRƯỚC GO-LIVE
+## ✅ NỢ KỸ THUẬT ĐÃ ĐÓNG
 
-- **P0.5 (`prompt_P0_5_migration.md`) — import nợ đầu kỳ — CHƯA LÀM.** Theo `00_PROMPT_CHAIN.md`,
-  P1A lẽ ra phải đứng sau P0.5 DONE; dự án đã bỏ qua bước đó (chấp nhận được vì hiện chỉ test trên
-  dữ liệu giả, `is_opening_balance` + `opening_journal_entry` đã có sẵn trên Batch Debt).
-  **Không được go-live với dữ liệu khách hàng thật khi chưa chạy prompt P0.5**: chưa có đường
-  import nợ cũ ⇒ Batch Debt sẽ thiếu toàn bộ số dư lịch sử, và mọi con số AR-vs-Batch-Debt ở P1G
-  sẽ lệch đúng bằng phần nợ cũ chưa nhập.
+- **P0.5 (`prompt_P0_5_migration.md`) — import nợ đầu kỳ — DONE 2026-09-17 10:42.** 6/6 PASS từ site
+  trắng (T1 reconcile diff=0 → T4 re-import không nhân đôi → T5 crash-replay adopt JE mồ côi),
+  mutation-check có răng (đảo needle adoption → T5 đỏ `11→12`, khôi phục → xanh). Không tạo Sales
+  Invoice ảo; mỗi khoản nợ = 1 JE (Dr AR party=Customer / Cr tài khoản đầu kỳ) + Batch Debt
+  `is_opening_balance=1`. Xem `result_2026-09-17_1042_P05_migration.txt`.
+  **Lưu ý go-live:** chỉ cần tender lại cùng đường import với file khách hàng thật (mẫu ở
+  `scripts/migration/`), không phải làm lại code.
 
 ## Sắp tới — ngắn hạn
 
@@ -32,9 +33,9 @@
      `BD = TT − PA − OF` và `BD − TE = (−U)+ER+(−PA)+(−OF)`. Bằng chứng: `P1G INTEGRITY: ALL PASS`
    - Dataset phát hiện **1 bug thật của P1D** (trả 1 dòng của hoá đơn nhiều dòng) → đã vá + thêm `T8`
    - 7 báo cáo Desk (6 Query + 1 Script) — bảng slug ↔ nhãn tiếng Việt nằm trong `EXIT_GATE_PHASE1.md`
-   - **Số liệu CHỜ QUYẾT ĐỊNH:** FIFO phân bổ 143.851.000 nhưng ERPNext chỉ cấn trừ cấp hoá đơn
-     41.372.500 (31/45 phiếu thu để trống `references`) ⇒ **gap −102.478.500**. Chủ dự án xem số rồi
-     quyết có đổi cơ chế phân bổ hay không — agent chưa đụng vào FIFO
+   - ~~Số liệu chờ quyết định~~ → **ĐÓNG 2026-09-17:** gap −102.478.500 (31/45 phiếu thu để trống
+     `references`) nhưng **GIỮ NGUYÊN FIFO, không sửa** — hệ quả đúng của kiến trúc view-layer
+     (Batch Debt là view trên AR, `residual=0` chứng minh không mất/đúp tiền), không phải bug
 1c. **[x] Review round sau P1G (2026-09-17)** — không có lỗi trong code P1G/P1D; đóng 2 lỗ hổng
    kiểm chứng bằng code: `.agent/bench_wait.py` (serialise lệnh bench dài — hết race `--to-file`) và
    `C9` so **số đúng** với `shape` (hết "SO lạc từ build chết mà suite vẫn xanh"). Tái xác minh:
@@ -42,7 +43,9 @@
    `openspec/.../design.md` **D26** + `tasks.md` **14c**.
 2. **[ ] Tài khoản Desk thật + role `Driver` (P2)** — cần chủ dự án cấp (hiện chỉ có user test
    `p0-acceptance-*` / `p1c-acceptance-*`); role Manager/Staff/Farmer đã tổn tại
-3. **[ ] Ngưỡng hiệu năng + đo dữ liệu lớn** — mục Performance của Exit Gate đang NOT ASSESSABLE
+3. **[x] Đo hiệu năng trên dữ liệu lớn (2026-09-17)** — `p1g_perf` chạy 2.000 giao dịch: on_submit
+   651 ms, integrity 9/9 (0,75 s), reports ≤ 0,16 s; Exit Gate mục 6 chuyển sang PASS-with-caveat.
+   Còn lại (không chặn): ngưỡng SLA chính thức từ chủ dự án nếu muốn đối chiếu.
 4. **[ ] Dọn dataset P1G** khi chủ dự án đã review số thủ công:
    `bench execute feed_dealer.setup.p1g_integrity.cleanup` (xoá theo thứ tự phụ thuộc + xoá marker)
 2b. **[!] P1E e-invoice = BLOCKED** — cần provider (VNPT/Viettel/MISA) + credential sandbox + mã số
@@ -56,7 +59,7 @@
 
 | Phase | Nội dung chính | Điều kiện tiên quyết |
 |---|---|---|
-| **P0.5** | Import nợ đầu kỳ, tạo `opening_journal_entry`, import trại/lứa | P0 ✓ |
+| **P0.5** | ✅ Import nợ đầu kỳ (JE Dr AR/Cr đầu kỳ + Batch Debt `is_opening_balance=1`), templates CSV + reconcile diff=0 (6/6 PASS) | P0 ✓ |
 | **P1A** | ✅ Sales Invoice → Batch Debt theo lứa (kể cả nhiều nhóm thuế/lứa); cascade cancel có bảo vệ `paid_amount > 0` | P0 ✓ |
 | **P1B** | ✅ Payment Entry → Payment Allocation FIFO; cancel đảo ngược. Còn: phân bổ thủ công, nhánh JE cho nợ đầu kỳ, unreconcile | P1A ✓ |
 | **P1C** | ✅ Credit Score + hạn mức theo tier, chặn đơn vượt hạn (commit `7c62129`) | P1B ✓ |
@@ -64,7 +67,7 @@
 | **P1E** | ⛔ BLOCKED: e-invoice VN — cần sandbox provider + mã số thuế (không mock) | P1A ✓ |
 | **P1F** | ✅ Consent + Debt Confirmation Slip (print format) + Livestock offset (JE) + Batch tách/gộp bảo toàn nợ (commit `b48d723`) | P1A ✓ |
 | **P1G** | ✅ 7 báo cáo Desk + script AR vs Batch Debt (integrity 9/9) + Exit Gate Phase 1 (`EXIT_GATE_PHASE1.md`); review round đã cứng hóa kiểm chứng (D26) | P1A–P1F (P1E blocked, phần e-invoice không chặn báo cáo) |
-| **P2/P4** | App nhân viên (Flutter) + Zalo Mini App nông dân | P1A–B |
+| **P2/P4** | App nhân viên (Flutter) + Zalo Mini App nông dân | P1A–B (môi trường build: xem `handoff`/result P2 — sandbox có Flutter+Android SDK, **không có Xcode ⇒ chỉ build Android**) |
 | **P3** | AI: kill switch vận hành, voice→action, Action Item (read-only posture) | P1 + config |
 
 ## Việc bảo trì nhỏ khi rảnh

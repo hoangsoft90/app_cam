@@ -89,7 +89,14 @@ from feed_dealer.setup.p1c_acceptance import _set_limit
 from feed_dealer.setup.p1d_acceptance import _approve, _request, _return_line
 from feed_dealer.setup.p1f_acceptance import _livestock_row, _purchase_invoice, _supplier
 
+# The dataset is identified by its prefix. The two Site Default keys below are
+# module variables (not literals) so a SECOND dataset can be built alongside
+# this one without clobbering it -- `p1g_perf.py` swaps prefix+keys to measure
+# on a few thousand invoices while the P1G integrity dataset stays verifiable.
+# Defaults are exactly the historical names, so existing runs are unaffected.
 PREFIX = "P1G-INTEGRITY"
+MARKER_BUILT = "feed_dealer_p1g_dataset_built"
+MARKER_SHAPE = "feed_dealer_p1g_dataset"
 SEED = 20260917
 TRANSACTIONS = 60  # the prompt asks for 50-100; 60 keeps a full run under a minute
 CUSTOMER_COUNT = 6
@@ -393,7 +400,7 @@ def _facts():
 	customers = _customers()
 	if not customers:
 		raise AssertionError("no P1G dataset on this site - run `p1g_integrity.run` first")
-	if not frappe.db.get_default("feed_dealer_p1g_dataset_built"):
+	if not frappe.db.get_default(MARKER_BUILT):
 		# Guards against the vacuous pass: with no documents every identity is
 		# "0 == 0" and the suite would report green on an empty database.
 		raise AssertionError(
@@ -681,7 +688,7 @@ def check_dataset_shape():
 	# leftovers from a crashed build used to sit in the dataset unnoticed (one
 	# extra submitted Sales Order), and a green run then rested on documents the
 	# shape counters never claimed. Any extra or missing document is a red check.
-	shape = json.loads(frappe.db.get_default("feed_dealer_p1g_dataset") or "{}")
+	shape = json.loads(frappe.db.get_default(MARKER_SHAPE) or "{}")
 	expected = {
 		"invoices": shape.get("transactions", 0) + shape.get("returns", 0),
 		"sales_orders": shape.get("orders", 0),
@@ -700,7 +707,7 @@ def check_dataset_shape():
 			f"found {actual} - leftovers from a crashed/partial build, or documents created outside "
 			f"the builder. Run `p1g_integrity.cleanup` and rebuild before trusting the numbers."
 		)
-	reported = frappe.db.get_default("feed_dealer_p1g_dataset") or "{}"
+	reported = frappe.db.get_default(MARKER_SHAPE) or "{}"
 	return (
 		f"{invoice_count} invoice(s) ({note_count} credit note), {order_count} SO->SI, "
 		f"{payment_count} receipt(s) ({len(payments_with_refs)} with references), {offset_count} offset JE(s); "
@@ -769,15 +776,15 @@ def ensure_dataset(count=TRANSACTIONS):
 	# order's submit and the invoice raised from it. The run still went green — the
 	# identities do not involve a stray order — which is exactly why the counters
 	# now have to be exact (check_dataset_shape) and the rebuild has to start clean.
-	marker = frappe.db.get_default("feed_dealer_p1g_dataset_built")
+	marker = frappe.db.get_default(MARKER_BUILT)
 	force = os.environ.get("FEED_DEALER_P1G_REBUILD") == "1"
 	if not marker and not force and _customers():
 		print("[feed_dealer] partial P1G dataset detected (no build marker) - cleaning before rebuild")
 		cleanup()
 	if force or not marker:
 		shape = build_dataset(count=count)
-		frappe.db.set_default("feed_dealer_p1g_dataset", json.dumps(shape, ensure_ascii=False))
-		frappe.db.set_default("feed_dealer_p1g_dataset_built", "1")
+		frappe.db.set_default(MARKER_SHAPE, json.dumps(shape, ensure_ascii=False))
+		frappe.db.set_default(MARKER_BUILT, "1")
 		frappe.db.commit()
 		return shape
 	return None
@@ -934,8 +941,8 @@ def cleanup():
 			removed.append(f"Customer {name}")
 		except Exception as exc:  # noqa: BLE001
 			removed.append(f"Customer {name} FAILED: {exc}")
-	frappe.db.set_default("feed_dealer_p1g_dataset", "")
-	frappe.db.set_default("feed_dealer_p1g_dataset_built", "")
+	frappe.db.set_default(MARKER_SHAPE, "")
+	frappe.db.set_default(MARKER_BUILT, "")
 	frappe.db.commit()
 	print(f"[feed_dealer] P1G cleanup removed {len(removed)} fixture(s):")
 	for item in removed:

@@ -23,7 +23,10 @@ Legend: `PASS` = có bằng chứng chạy thật · `BLOCKED` = phụ thuộc b
 | P1F legal / livestock / batch ops | **9/9 PASS** | `/tmp/p1f_fin.log` |
 | **P1G integrity (AR vs Batch Debt)** | **9/9 PASS** | `/tmp/p1g_fin.log` |
 | **P1G reports** | **4/4 PASS** | `/tmp/p1g_rep_fin.log` |
+| **P0.5 opening-balance migration** | **6/6 PASS** (từ site trắng) | `/tmp/p05_run*.log` |
+| **Performance smoke (2.000 giao dịch)** | integrity **9/9 PASS**, on_submit 651 ms, reports ≤ 0,16 s | `/tmp/perf_big.log` (`/tmp/perf_pilot.log` cho mốc 100) |
 | Mutation-check C1/C7 (bỏ `offset_amount` khỏi công thức nợ) | C1+C7 **đỏ**, diff đúng 1.205.000 | `/tmp/p1g_mut.log` |
+| Mutation-check P0.5 (đảo needle adoption) | T5 **đỏ** (`11→12`), khôi phục → xanh 6/6 | `/tmp/p05_mut*.log` |
 
 ---
 
@@ -91,8 +94,11 @@ gap (ER − PA)                       = −102.478.500
 
 Nghĩa là: với 71% số phiếu thu, ERPNext ghi "hoá đơn còn nợ" trong khi Batch Debt ghi "đã trả theo
 lứa" — đúng như D19 đã tuyên bố, không phải lỗi. Nhưng nó là **102,5 triệu đồng** mà hai lớp kể hai
-câu chuyện khác nhau, nên đây là con số cần trước khi quyết có sửa FIFO hay không. **Agent chưa sửa
-cơ chế phân bổ.**
+câu chuyện khác nhau, nên đây là con số cần trước khi quyết có sửa FIFO hay không.
+
+> **QUYẾT ĐỊNH ĐÃ CHỐT (2026-09-17):** giữ nguyên cơ chế FIFO, **không sửa**. Đây là hệ quả đúng của
+> kiến trúc view-layer (Batch Debt là lớp view trên AR), không phải bug — `residual = 0` trên đẳng
+> thức (2) đã chứng minh không mất tiền, không đúp tiền. Mục này **đóng**, giữ lại vết quyết định.
 
 ## 4. Failure recovery / không phá sổ khi huỷ — **PASS**
 
@@ -117,12 +123,41 @@ cơ chế phân bổ.**
 - Phê duyệt trả hàng ghi `approved_by`/`approved_at` cùng lúc với `batch_debt_adjusted` trong một
   lần save; nếu save lỗi thì credit note bị huỷ+xoá và nợ được tính lại (P1D).
 
-## 6. Performance — **NOT ASSESSABLE**
+## 6. Performance — **PASS (with caveat)**
 
-- Chỉ có smoke test: dataset 60 giao dịch (70 hoá đơn, 94 khoản nợ, 126 dòng phân bổ) chạy trọn
-  trong một phiên bench, 7 report execute xong (report lớn nhất 126 dòng).
-- **Chưa** test với dữ liệu lớn (≥ vài nghìn hoá đơn / ≥ 100k dòng GL), chưa có EXPLAIN/đo thời gian,
-  chưa có index riêng cho report theo lứa. Đây là việc của giai đoạn go-live, **không tự nhận PASS**.
+Đo thật ngày **2026-09-17** bằng `feed_dealer.setup.p1g_perf` (tái dùng đúng generator của P1G, chạy
+under prefix `P1G-PERF` riêng, log `/tmp/perf_pilot.log` + `/tmp/perf_big.log`).
+
+**Dataset đo:** 2.000 giao dịch ngẫu nhiên (seed cố định) → 2.285 hoá đơn (285 credit note), 400
+SO→SI, 1.425 phiếu thu (400 có `references`, 1.025 để trống), 127 phiếu thu vượt nợ, 163 bút toán
+cấn trừ vật nuôi, 879 hoá đơn nhiều lứa, 537 hoá đơn 2 thuế suất. Build: **865,8 s** (432,9 ms/giao
+dịch).
+
+| Đo | Dataset 100 giao dịch (pilot) | Dataset 2.000 giao dịch | Ngưỡng |
+|---|---|---|---|
+| (a) 1 `Sales Invoice` insert+submit | 486 ms | **651 ms** | — |
+| (b) integrity AR-vs-Batch-Debt (9 check) | 0,129 s | **0,747 s** | — |
+| (c) `debt_by_batch` | 0,141 s / 142 dòng | 0,137 s / 154 dòng | — |
+| (c) `payment_allocation_detail` | 0,005 s / 285 dòng | 0,029 s / 3.857 dòng | — |
+| (c) `customer_credit_limit` (Script, gọi gate) | 0,134 s / 40 dòng | **0,160 s** / 40 dòng | — |
+| (c) `overdue_batch_debts` / `cash_flow_30_60_90` / `batch_profit_loss` / `approval_audit_log` | 0,002–0,006 s | 0,004–0,008 s | — |
+| integrity trên dữ liệu lớn | — | **9/9 PASS** (C1 diff = 0 đúng) | 0 đồng |
+
+**Đọc số:**
+- `on_submit` một hoá đơn tăng từ 486 ms → 651 ms khi lịch sử khách tăng ~20 lần (100 → 2.000 hoá
+  đơn). Đây là **quan hệ dưới tuyến tính** — không có vụ nổ tổ hợp (N+1) nào trong hook; hoá đơn mới
+  nhất vẫn ở mức dưới 1 giây.
+- Toàn bộ 9 check integrity chạy dưới 1 giây trên 2.285 hoá đơn.
+- Báo cáo nặng nhất là `customer_credit_limit` (Script Report **gọi `credit_position()` cho từng
+  khách** thay vì tự viết SQL — chọn đúng để không lệch với gate, xem mục 2) ở 0,16 s cho 40 khách.
+  Nếu số khách tăng lên hàng nghìn thì đây là chỗ cần để ý trước (mỗi khách = 1 lượt tính lại nợ
+  mở + SO chưa xuất hoá đơn + SO nháp), **không phải chỗ để tối ưu ngay**.
+- **Caveat:** đây là smoke test trên **một** máy và **một** luồng đơn (600 giao dịch sớm nhất trên
+  site, single-process bench). Chưa đo: đồng thời nhiều người dùng, dữ liệu lớn hơn nữa, DB đã
+  chạy lâu (bloat), EXPLAIN/index cho report theo lứa. Vì vậy là **PASS with caveat**, không phải
+  "đã tối ưu".
+- Dataset đo **đã được dọn** sau khi đo (`p1g_perf.cleanup`); dataset P1G (60 giao dịch) **không bị
+  đụng** vì perf dùng prefix + Site Default key riêng.
 
 ## 7. UX / Desk — **NOT ASSESSABLE (lớn)**
 
@@ -143,18 +178,26 @@ cơ chế phân bổ.**
 | Data integrity | PASS | 2 đẳng thức, sai số 0 đồng, có mutation-check |
 | Failure recovery | PASS | huỷ/khôi phục + idempotent + backup |
 | Audit | PASS | track_changes + report nhật ký 40 dòng |
-| Performance | **NOT ASSESSABLE** | chưa test dữ liệu lớn |
+| Performance | PASS (with caveat) | đo thật trên 2.000 giao dịch (xem mục 6) |
 | UX Desk | **NOT ASSESSABLE** | chưa có user thật/ảnh chụp |
 
-**⇒ Cổng Phase 1: 5/7 PASS, 2/7 chưa đủ điều kiện đánh giá, 1 hạng mục BLOCKED bên ngoài (P1E).**
-Chưa thể coi là "thoát Phase 1" cho tới khi: (a) P1E có provider, (b) có tài khoản người dùng thật
-để review UX, (c) có ngưỡng hiệu năng tối thiểu và đo.
+**⇒ Cổng Phase 1: 6/7 PASS (1 có caveat), 1/7 chưa đủ điều kiện đánh giá, 1 hạng mục BLOCKED bên
+goài (P1E).** Chưa thể coi là "thoát Phase 1" cho tới khi: (a) P1E có provider, (b) có tài khoản
+người dùng thật để review UX. Mục Performance giờ có số thật (mục 6) nên đã chuyển từ NOT
+ASSESSABLE sang PASS-with-caveat — chưa có ngưỡng chính thức từ chủ dự án, agent **không tự đặt
+ngưỡng** để tự ký duyệt.
 
 ## Việc còn treo (đã ghi vào `next.md`)
 
-1. **P0.5 import nợ đầu kỳ — BẮT BUỘC trước go-live với dữ liệu khách thật.** Nếu bỏ qua, Batch Debt
-   thiếu toàn bộ nợ lịch sử ⇒ mọi số đối chiếu ở mục 3 lệch đúng phần đó.
-2. P1E provider + credential sandbox.
-3. Tài khoản Desk thật (Manager/Staff/Driver) + chính sách mật khẩu.
-4. Ngưỡng hiệu năng + đo trên dữ liệu lớn.
-5. Quyết định về FIFO vs `references` dựa trên số ở mục 3 (chờ chủ dự án).
+1. P1E provider + credential sandbox.
+2. Tài khoản Desk thật (Manager/Staff/Driver) + chính sách mật khẩu.
+3. ~~Ngưỡng hiệu năng + đo trên dữ liệu lớn~~ — **đã đo 2026-09-17** (mục 6, 2.000 giao dịch). Còn
+   lại: nếu chủ dự án muốn một ngưỡng SLA chính thức (vd "on_submit < 2 s ở 10k hoá đơn") thì nêu
+   ra để lần đo sau đối chiếu, chứ hiện chỉ có số, chưa có ngưỡng.
+
+### Đã đóng
+
+- ~~**P0.5 import nợ đầu kỳ**~~ — **DONE 2026-09-17 10:42** (6/6 PASS từ site trắng, mutation-check
+  có răng). KHÔNG còn là nợ trước go-live; chỉ cần chạy lại với file khách hàng thật khi go-live.
+  Xem `working.md` 2026-09-17 10:42 + `result_2026-09-17_1042_P05_migration.txt`.
+- ~~**Quyết định FIFO vs `references`**~~ — **ĐÓNG 2026-09-17**: giữ nguyên FIFO (lý do ở mục 3).
