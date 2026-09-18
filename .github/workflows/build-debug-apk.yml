@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: mobile
+        working-directory: mobile-dealer
 
     steps:
       - uses: actions/checkout@v4
@@ -61,7 +61,7 @@ jobs:
       # and the settings file lives there (run-5 "does not contain a Gradle
       # build" proof when invoked from mobile/).
       - name: Assemble debug APK (gradlew assembleDebug)
-        working-directory: mobile/android
+        working-directory: mobile-dealer/android
         run: ./gradlew assembleDebug --no-daemon
 
       # The Flutter gradle template redirects the android build dir to <app>/build,
@@ -70,7 +70,7 @@ jobs:
         with:
           name: camviet-debug-apk
           path: |
-            mobile/build/app/outputs/apk/debug/app-debug.apk
-            mobile/android/app/build/outputs/apk/debug/app-debug.apk
+            mobile-dealer/build/app/outputs/apk/debug/app-debug.apk
+            mobile-dealer/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
