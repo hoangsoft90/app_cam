@@ -304,30 +304,38 @@ void main() {
   });
 
   group('OwnerDashboardScreen (Mốc 2 — real widget, mocked ERP)', () {
-    Future<http.Response> Function(http.Request) _erpBackend() => (req) async {
+    Future<http.Response> Function(http.Request) erpBackend() => (req) async {
           if (req.url.path == '/api/method/frappe.client.get_list') {
             final doctype = req.url.queryParameters['doctype'];
-            if (doctype == 'Customer') return _json({'message': [
+            if (doctype == 'Customer') {
+              return _json({'message': [
                 {'name': 'CUST-001', 'customer_name': 'Vũ nông trại'},
               ]});
-            if (doctype == 'Feed Batch') return _json({'message': [
+            }
+            if (doctype == 'Feed Batch') {
+              return _json({'message': [
                 {'name': 'LOT-2026-00001', 'customer': 'Vũ nông trại', 'total_debt': 1500000},
               ]});
-            if (doctype == 'Batch Debt') return _json({'message': [
+            }
+            if (doctype == 'Batch Debt') {
+              return _json({'message': [
                 {'name': 'BD-001', 'customer': 'Vũ nông trại', 'batch': 'LOT-2026-00001',
                  'allocated_amount': 1000000, 'paid_amount': 400000, 'returned_amount': 0,
                  'outstanding_amount': 600000, 'status': 'Một phần', 'due_date': '2026-10-01'},
               ]});
-            if (doctype == 'Sales Order') return _json({'message': [
+            }
+            if (doctype == 'Sales Order') {
+              return _json({'message': [
                 {'name': 'SO-001', 'customer': 'Vũ nông trại', 'grand_total': 2000000,
                  'transaction_date': '2026-09-18'},
               ]});
+            }
           }
           return http.Response('{}', 404);
         };
 
     testWidgets('renders stats + debts + draft SO', (tester) async {
-      final erp = app.ErpClient(baseUrl: 'https://x.example', client: MockClient(_erpBackend()));
+      final erp = app.ErpClient(baseUrl: 'https://x.example', client: MockClient(erpBackend()));
       await tester.pumpWidget(MaterialApp(home: OwnerDashboardScreen(erp: erp)));
       await tester.pumpAndSettle();
 
@@ -341,7 +349,7 @@ void main() {
     });
 
     testWidgets('approve flow: guard, confirm dialog, PUT, then list refresh', (tester) async {
-      final erp = app.ErpClient(baseUrl: 'https://x.example', client: MockClient(_erpBackend()));
+      final erp = app.ErpClient(baseUrl: 'https://x.example', client: MockClient(erpBackend()));
       await tester.pumpWidget(MaterialApp(home: OwnerDashboardScreen(erp: erp)));
       await tester.pumpAndSettle();
 
@@ -364,7 +372,7 @@ void main() {
             '_server_messages': jsonEncode(['Hạn mức tín dụng không đủ cho đơn này']),
           }), 417);
         }
-        return _erpBackend()(req);
+        return erpBackend()(req);
       });
       final erp = app.ErpClient(baseUrl: 'https://x.example', client: client);
       await tester.pumpWidget(MaterialApp(home: OwnerDashboardScreen(erp: erp)));

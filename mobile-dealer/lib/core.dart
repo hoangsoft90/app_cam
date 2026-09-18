@@ -219,13 +219,13 @@ class ErpClient {
     int limit = 20,
     String? orderBy,
   }) async {
-    final data = await getResource(
+    final data = await getResource(  // null values are omitted by Uri.queryParameters
       Uri(path: '/api/method/frappe.client.get_list', queryParameters: {
         'doctype': doctype,
         'fields': jsonEncode(fields),
         'limit_page_length': '$limit',
-        if (filters != null) 'filters': jsonEncode(filters),
-        if (orderBy != null) 'order_by': orderBy,
+        'filters': jsonEncode(filters),
+        'order_by': orderBy,
       }).toString(),
     );
     final message = data['message'];
