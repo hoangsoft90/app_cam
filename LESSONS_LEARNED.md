@@ -240,6 +240,8 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
 
 59. **Dọn tool trên sandbox: `rm -rf` xong phải verify — husk root-owned và symlink đứt không tự biến mất.** Đo 2026-09-18: `/google/flutter` xoá 1.1GB nội dung xong vẫn còn thư mục rỗng owner root (cần `sudo rmdir`); `adb` là symlink đứt còn sót sau khi gỡ package (dpkg chỉ xoá file thật). Verify bằng `which` + `ls -d`, không tin exit 0 của rm.
 
+60. **Flutter android template .gitignore exclude gradlew + gradlew là project root theo CWD — 3 bẫy path khi build gradle trực tiếp trên CI.** Đo 2026-09-18 (run 3→6): (1) phải track `gradlew`/`gradlew.bat`/`gradle-wrapper.jar` vì template .gitignore đang exclude; (2) `defaults.run.working-directory` áp cho MỌI step → `./gradlew` sai tầng; (3) gradlew lấy CWD làm root — phải chạy TỪ `mobile/android/` (nơi có settings.gradle.kts). Bonus: `flutter analyze` exit 1 cả với lint INFO; jobs-log endpoint có lúc trả rỗng → dùng zip run logs.
+
 ---
 
 ## Quy tắc mang đi (tóm tắt 1 dòng mỗi bài)

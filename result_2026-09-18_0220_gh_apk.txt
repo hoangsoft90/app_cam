@@ -59,6 +59,21 @@ trigger + đọc log khi fail, secrets discipline trước mỗi lần push.
 - Đây chính là lý do chính sách "build debug APK mới tìm đúng lỗi": analyzer trên
   CI bắt lỗi deps thiếu mà không cần máy thật/tool local.
 
+## Run 3→6: vòng lặp thật tới GREEN (mỗi run một root cause, đều đọc từ log)
+
+- Run 3 (`35299147114`, `cdc2122`): FAIL chmod — template .gitignore của Flutter
+  android đang exclude `gradlew`/`gradlew.bat`/`gradle-wrapper.jar` → CI checkout
+  thiếu. Fix `7a9d733`: track lại 3 file wrapper.
+- Run 4 (`35299406953`, `7a9d733`): FAIL exit 127 `./gradlew` — working-directory
+  là `mobile/` nên tìm `mobile/gradlew`. Fix `ab121f3`: `./android/gradlew`.
+- Run 5 (`35299611470`, `ab121f3`): FAIL "does not contain a Gradle build" —
+  gradlew lấy CWD làm project root, phải chạy TỪ `mobile/android/`. Fix
+  `c326ab4`: step build có `working-directory: mobile/android` riêng.
+- **Run 6 (`35299833093`, `c326ab4`): SUCCESS ✅ — artifact `camviet-debug-apk`
+  72,364,276 B, expiry 2026-10-02.** Pipeline đã hoạt động end-to-end thật.
+- Ghi vào skill: 5 gotcha đo được + mẹo đọc log (jobs-log endpoint trả body
+  rỗng → dùng zip `GET /actions/runs/<id>/logs`).
+
 ## Treo
 
 - Build đang in_progress trên GH (không chờ theo yêu cầu). Nếu đỏ → đọc log
