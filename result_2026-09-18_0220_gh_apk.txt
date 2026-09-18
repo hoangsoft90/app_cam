@@ -47,6 +47,18 @@ local; build APK chỉ qua GH Actions gradle trực tiếp; token đọc từ
 .agent/gh_token không hỏi lại), repo facts, checklist workflow, cách verify
 trigger + đọc log khi fail, secrets discipline trước mỗi lần push.
 
+## Run 1 FAIL → fix → Run 2 (bằng chứng vòng lặp debug APK làm đúng việc)
+
+- Run 1 (`35298515190`, head `8dda6ce`): **failure** ở bước **Analyze** — code dùng
+  `http` + `shared_preferences` nhưng quên khai báo trong pubspec.yaml (lỗi của tôi),
+  kèm `widget_test.dart` template còn tham chiếu `MyApp`. Đọc log jobs qua API,
+  KHÔNG đoán.
+- Fix commit `73348e5`: thêm 2 deps (+ pubspec.lock), viết 3 unit test thật cho
+  FinancialAction.guard + idempotency key, thêm bước `flutter test` vào workflow.
+- Run 2 (`35298878732`, head `73348e5`): **in_progress** — không chờ theo yêu cầu.
+- Đây chính là lý do chính sách "build debug APK mới tìm đúng lỗi": analyzer trên
+  CI bắt lỗi deps thiếu mà không cần máy thật/tool local.
+
 ## Treo
 
 - Build đang in_progress trên GH (không chờ theo yêu cầu). Nếu đỏ → đọc log
