@@ -237,7 +237,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadSummary() async {
     try {
       final data = await widget.erp.get(
-          '/api/resource/Feed Batch?fields=[\"name\",\"total_debt\"]&limit_page_length=5&order_by=modified desc');
+          '/api/resource/Feed Batch?fields=["name","total_debt"]&limit_page_length=5&order_by=modified desc');
       final rows = (data['data'] as List).cast<Map>();
       setState(() => _status = rows.isEmpty ? 'Chưa có lứa nào' : rows.map((r) => r['name']).join(', '));
     } catch (e) {
@@ -260,7 +260,7 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           ValueListenableBuilder<bool>(
             valueListenable: isOnline,
-            builder: (_, online, __) => IconButton(
+            builder: (_, online, _) => IconButton(
               onPressed: () => isOnline.value = !isOnline.value, // dev toggle; replace with connectivity_plus
               icon: Icon(online ? Icons.cloud_done : Icons.cloud_off),
               tooltip: online ? 'Online (bấm để mô phỏng offline)' : 'Offline (bấm để online)',
