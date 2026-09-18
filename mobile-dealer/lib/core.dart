@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, ValueNotifier;
 import 'package:http/http.dart' as http;
 
 /// P2 internal app core: ERP REST client + hard project rules.
@@ -23,7 +23,7 @@ String newIdempotencyKey() {
 }
 
 /// Vietnamese money rendering: `1500000` → `1,500,000đ` (grouped, no
-decimals — debt amounts are whole dong).
+/// decimals — debt amounts are whole dong).
 String vnd(num amount) {
   final s = amount.round().abs().toString();
   final buf = StringBuffer();
