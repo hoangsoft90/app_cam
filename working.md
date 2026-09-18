@@ -483,11 +483,9 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   không DN), T16a–d (thiếu hàng: chặn ở cả đường tài xe lẫn đường duyệt, tồn kho không nhúc nhích,
   hồ sơ vẫn "Giao thành công tạm"). Log: `/tmp/m3_dn8.log` trong container.
 - Commit `a52a885d69f2bdf86a3b2980a864279fb93670d8` (đã push).
-- **CÂU HỎI ĐANG CHỜ CHỦ DỰ ÁN (không tự quyết):** quyết định ghi "OTP/Signature (final) → submit DN
-  NGAY", nhưng code hiện xếp **Signature = "Giao thành công tạm"** (theo addendum B9: cả Signature và
-  Photo Only chờ chủ đại lý duyệt trong ngày). Hai nguồn mâu thuẫn, ảnh hưởng trực tiếp tới việc hàng
-  có rời kho ngay hay không ⇒ chưa đổi, chờ chốt. Trong lúc chờ, Signature đi theo B9 (DN tạo khi
-  chủ duyệt).
+- **ĐÃ CHỐT (chủ dự án, 2026-09-18, khi giao việc Mốc 3 UI):** **Signature KHÔNG xuất kho ngay** —
+  cùng nhóm Photo Only, chời Manager duyệt; **OTP = final → tạo + submit DN ngay**. Khớp đúng code
+  hiện tại (B9), không phải sửa gì; UI Driver phải ghi rõ điều này cho tài xế thấy.
 
 ## 2026-09-18 (tiếp) — Mốc 3 nửa backend: vòng REVIEW thứ 2
 

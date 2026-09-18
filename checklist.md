@@ -138,9 +138,8 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
             duyệt, từ chối → không DN. `p2_delivery_acceptance` **33/33 PASS** (T15a–d, T16a–d thiếu
             hàng chặn ở cả 2 đường, tồn kho có kiểm chứng). Commit `a52a885`.
       - [ ] Màn hình Driver trong app (danh sách giao + OTP/chữ ký/ảnh/GPS + nén ảnh) + widget test 3 nhánh
-      - [?] Cần chủ dự án quyết: **Signature là final (xuất kho ngay) hay tạm (chờ chủ duyệt)?**
-            Quyết định 2026-09-18 ghi "OTP/Signature (final)" nhưng addendum B9 lại xếp Signature vào
-            nhóm tạm; code hiện theo B9 — chưa đổi, chờ chốt.
+      - [x] **ĐÃ CHỐT 2026-09-18:** Signature **không** xuất kho ngay (cùng nhóm Photo Only, chờ
+            Manager duyệt); OTP = final → DN ngay. Khớp code hiện tại, UI Driver ghi rõ cho tài xế.
       - [x] Cần chủ dự án quyết: gửi OTP qua SMS → chốt 2026-09-18: **BLOCKED** (không có provider),
             giữ nhập OTP tay + nhánh Signature/Photo
 - [ ] Mốc 4: Offline queue + idempotency_key cho create được phép offline
