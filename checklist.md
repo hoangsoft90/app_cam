@@ -117,7 +117,9 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
       owner policy 2026-09-18, tool local đã xoá); workflow `build-debug-apk.yml` gradle trực tiếp,
       không keystore/EAS → **GREEN run 6** (`35299833093`), artifact `camviet-debug-apk` ~72 MB
 - [x] Test accounts + role Driver sẵn sàng (mục B0)
-- [ ] Mốc 1: scaffold + login REST + multi-role switcher
+- [x] Mốc 1: scaffold + login REST + multi-role switcher — DONE (commit `d793c64`, review-fix `01c343f`,
+      APK đã tải về `dist/app-debug.apk` commit `01c343f`); Settings + auto-login (Mốc 1.5) đã code,
+      chờ CI xác nhận; HTTPS-guard + widget test thật cho `_bootstrap()` đang vá (2026-09-18)
 - [ ] Mốc 2: Owner dashboard (khách/lứa/nợ/duyệt SO) — online-only trước
 - [ ] Mốc 3: Driver flow (giao hàng, OTP/chữ ký/ảnh/GPS)
 - [ ] Mốc 4: Offline queue + idempotency_key cho create được phép offline

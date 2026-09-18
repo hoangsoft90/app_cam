@@ -387,3 +387,20 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 - UI thao tác tay (màn hình thật) chưa chụp được — sẽ bổ sung ảnh chụp ở Mốc 6 khi có máy thật,
   đúng tinh thần "mô tả bằng chứng thao tác tay thay vì tự nhận PASS".
 - DỪNG theo mốc: chờ review trước khi làm Mốc 2 (Owner dashboard).
+
+## [2026-09-18 03:33 UTC] Trước Mốc 2 — quyết định PUBLIC repo + 2 việc vá nhanh
+- **Quyết định chủ dự án (trả lời trực tiếp, có vết):** repo GitHub `hoangsoft90/app_cam` giữ
+  **PUBLIC** — đây là chủ đích; tiếp tục push bình thường, không chuyển private. Đã kiểm tra lại
+  secrets trước push (token GH chỉ nằm `.agent/gh_token`, git-ignored; không secret nào khác).
+- **VIỆC 1 — HTTPS guard:** code `validateBaseUrl` (core.dart) đã sẵn có từ vòng review — chặn
+  http với đúng thông báo "Chỉ hỗ trợ kết nối HTTPS để bảo vệ mật khẩu"; ngoại lệ loopback
+  (localhost/127.0.0.1/10.0.2.2) đặt sau NGƯỠNG `kDebugMode &&` → release không thể lọt
+  (kDebugMode tree-shaken false). Việc lần này: thêm test chứng minh (http bị chặn ở cả tầng
+  URL-validate lẫn tầng login, không request nào rời máy) + test debug-only loopback.
+- **VIỆC 2 — test server-wins viết lại thành widget test THẬT:** test cũ bơm logic giả; thay bằng
+  3 `pumpWidget(HomeScreen)` với ErpClient giả (MockClient + SharedPreferences.setMockInitialValues):
+  (a) saved role giữ khi server vẫn cấp + drawer enable/disable đúng theo server; (b) saved role
+  bị DROP khi server không cấp (server-wins); (c) bootstrap lỗi → status lỗi, không crash. Test giờ
+  gọi qua `_bootstrap()` thật — sửa sai `_bootstrap()` sau này sẽ đỏ.
+- **Docs:** checklist C2 Mốc 1 → `[x]` kèm hash; next.md thêm mục P2 (repo link + chính sách
+  build-qua-GH-Actions + trạng thái Mốc 1).

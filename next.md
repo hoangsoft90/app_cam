@@ -41,8 +41,10 @@
    `C9` so **số đúng** với `shape` (hết "SO lạc từ build chết mà suite vẫn xanh"). Tái xác minh:
    P1G INTEGRITY 9/9 · P1G REPORTS 4/4 · P1D 8/8. Xem `result_2026-09-17_0805_review_P1G.txt` +
    `openspec/.../design.md` **D26** + `tasks.md` **14c**.
-2. **[ ] Tài khoản Desk thật + role `Driver` (P2)** — cần chủ dự án cấp (hiện chỉ có user test
-   `p0-acceptance-*` / `p1c-acceptance-*`); role Manager/Staff/Farmer đã tổn tại
+2. **[x] Tài khoản Desk + role `Driver` cho P2 (2026-09-18)** — role `Driver` + 3 user test
+   `p2-test-{owner,staff,driver}@example.com` đã tạo trên site (`p2_test_accounts.run` EXIT 0);
+   mật khẩu random in 1 lần khi tạo (không lưu repo). Tài khoản người dùng THẬT vẫn để dành cho
+   go-live checklist (không chặn dev).
 3. **[x] Đo hiệu năng trên dữ liệu lớn (2026-09-17)** — `p1g_perf` chạy 2.000 giao dịch: on_submit
    651 ms, integrity 9/9 (0,75 s), reports ≤ 0,16 s; Exit Gate mục 6 chuyển sang PASS-with-caveat.
    Còn lại (không chặn): ngưỡng SLA chính thức từ chủ dự án nếu muốn đối chiếu.
@@ -54,6 +56,18 @@
    tạo** (theo v2.2 MUST-3) — nếu muốn theo prompt cũ (chỉ chặn lúc submit) thì nói, tôi đổi
 4. **[x] Drop 12 cột rác `tabBatch`** — đã làm 2026-09-17 (patch + backup + verify)
 5. (Tuỳ chọn) Dọn fixture acceptance: mọi bộ `run()` đều tự dọn trước khi chạy, không cần tay
+
+## P2 — Internal Mobile `mobile-dealer` (Flutter, Android-only)
+
+- **Repo:** https://github.com/hoangsoft90/app_cam (push lên `main` tự build APK debug qua GH Actions)
+- **Chính sách build (owner 2026-09-18):** CẤM build APK local; mọi build qua workflow
+  `.github/workflows/build-debug-apk.yml` — gradle trực tiếp (`./gradlew assembleDebug`),
+  debug-signed, không keystore, không EAS token. Workflow xanh từ run 6; artifact
+  `camviet-debug-apk` (~72 MB, giữ 14 ngày).
+- **Trạng thái:** Mốc 1 DONE (login 2 đường password/token, multi-role switcher server-driven,
+  Settings + auto-login secure storage; CI run `35302106214` GREEN, 11 unit test PASS; APK Mốc 1
+  đã tải về `dist/app-debug.apk`). Mốc 2 (Owner dashboard online-only) là việc kế tiếp.
+- Tiến độ chi tiết theo mốc: `checklist.md` mục C2.
 
 ## Roadmap phase tiếp theo
 

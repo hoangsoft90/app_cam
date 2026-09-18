@@ -1,20 +1,28 @@
-import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:mobile_dealer/core.dart';
+import 'package:mobile_dealer/owner_dashboard.dart';
+import 'package:mobile_dealer/restore_session.dart';
+import 'package:mobile_dealer/session.dart';
+import 'package:mobile_dealer/settings_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+// Tests drive ErpClient/FinancialAction/etc. through this file's namespace.
+export 'package:mobile_dealer/core.dart'
+    show
+        AuthResult,
+        ErpClient,
+        FinancialAction,
+        SubmitRejected,
+        isOnline,
+        looksLikeTokenPair,
+        newIdempotencyKey,
+        validateBaseUrl,
+        vnd;
 
 void main() => runApp(const CamVietApp());
 
-/// P2 internal mobile app (Cám Việt) — Owner / Staff / Driver, one codebase
-/// (`mobile-dealer`). Mốc 1: scaffold + login REST + multi-role switcher.
-///
-/// Hard rules (phase_02_internal_mobile.md — enforced in code, not comments):
-/// * NO financial mutation while offline: [FinancialAction.guard] throws unless
-///   the device is online, so a payment / credit change can never silently queue.
-/// * Server wins on conflict: failed/conflicting writes are surfaced, never
-///   force-overwritten locally.
-/// * Every create carries an idempotency key ([newIdempotencyKey]).
 class CamVietApp extends StatelessWidget {
   const CamVietApp({super.key});
 
@@ -23,171 +31,58 @@ class CamVietApp extends StatelessWidget {
     return MaterialApp(
       title: 'Cám Việt',
       theme: ThemeData(colorSchemeSeed: const Color(0xFF2E9E57), useMaterial3: true),
-      home: const LoginScreen(),
+      home: const SplashScreen(),
     );
   }
 }
 
-/// Online flag — dev toggle for now; Mốc 4 swaps in connectivity_plus.
-final ValueNotifier<bool> isOnline = ValueNotifier<bool>(true);
+/// Mốc 1.5 — the password field doubles as a token field
+/// (`api_key:api_secret`), sessions persist in the device Keystore and the
+/// app auto-logins on launch (owner-requested), with a visible toggle in
+/// Settings to switch that off.
 
-int _idemSeq = 0;
+/// Splash: runs auto-login once, then routes.
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
 
-/// Stable per logical operation: the caller computes it once when the op is
-/// created and stores it with the queued row (never per retry).
-String newIdempotencyKey() {
-  _idemSeq += 1;
-  return 'mob-${DateTime.now().toUtc().microsecondsSinceEpoch}-$_idemSeq';
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
 }
 
-/// Hard gate for money-touching actions (payment, credit override, debt edit).
-class FinancialAction {
-  static void guard() {
-    if (!isOnline.value) {
-      throw StateError('Financial mutation is forbidden while offline');
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_bootstrap());
+  }
+
+  Future<void> _bootstrap() async {
+    final (erp, error) = await restoreSession();
+    if (!mounted) return;
+    if (erp != null) {
+      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => HomeScreen(erp: erp)));
+      return;
     }
-  }
-}
-
-/// Auth outcome. `error` is a human-friendly Vietnamese message when `ok`.
-class AuthResult {
-  const AuthResult({required this.ok, this.fullName, this.error});
-
-  final bool ok;
-  final String? fullName;
-  final String? error;
-}
-
-/// REST client against the ERPNext site (Mốc 1 scope: login + reads).
-///
-/// Two auth paths, same two credential fields:
-/// 1. Password: POST /api/method/login → session cookie `sid` (kept here and
-///    sent as `Cookie: sid=...`; the `http` package has no cookie jar).
-/// 2. API token fallback: the same fields interpreted as
-///    `Authorization: token <api_key>:<api_secret>` (useful for dev machines).
-///
-/// `client` is injectable so tests drive it with a MockClient — no real
-/// network in unit tests.
-class ErpClient {
-  ErpClient({required this.baseUrl, http.Client? client}) : _http = client ?? http.Client();
-
-  final String baseUrl;
-  final http.Client _http;
-  String? sid;
-  String? tokenPair; // '<api_key>:<api_secret>' when token auth succeeded
-
-  Map<String, String> get _authHeaders => {
-        if (sid != null) 'Cookie': 'sid=$sid',
-        if (tokenPair != null) 'Authorization': 'token $tokenPair',
-      };
-
-  /// Password login first; on failure retry the fields as an API token pair.
-  Future<AuthResult> login(String user, String password) async {
-    try {
-      final res = await _http
-          .post(
-            Uri.parse('$baseUrl/api/method/login'),
-            body: {'usr': user, 'pwd': password},
-          )
-          .timeout(const Duration(seconds: 15));
-      if (res.statusCode == 200) {
-        final data = _decodeObject(res);
-        sid = RegExp(r'sid=([^;]+)').firstMatch(res.headers['set-cookie'] ?? '')?.group(1);
-        return AuthResult(ok: true, fullName: data['full_name'] as String?);
-      }
-      final friendly = _friendlyAuthError(res.body);
-      final tokenResult = await _loginWithToken(user, password);
-      if (tokenResult.ok) return tokenResult;
-      return AuthResult(ok: false, error: friendly ?? tokenResult.error);
-    } on FormatException {
-      // non-JSON / wrong-shape body (proxy pages, null) — not a network fault
-      return const AuthResult(ok: false, error: 'Phản hồi không hợp lệ từ máy chủ');
-    } on Exception {
-      return const AuthResult(ok: false, error: 'Không kết nối được máy chủ');
-    }
+    Navigator.of(context).pushReplacement(MaterialPageRoute(
+      builder: (_) => LoginScreen(autoLoginError: error),
+    ));
   }
 
-  Future<AuthResult> _loginWithToken(String key, String secret) async {
-    try {
-      final res = await _http
-          .get(
-            Uri.parse('$baseUrl/api/method/frappe.auth.get_logged_user'),
-            headers: {'Authorization': 'token $key:$secret'},
-          )
-          .timeout(const Duration(seconds: 15));
-      if (res.statusCode != 200) return const AuthResult(ok: false, error: 'Đăng nhập thất bại');
-      tokenPair = '$key:$secret';
-      final data = _decodeObject(res);
-      return AuthResult(ok: true, fullName: data['message'] as String?);
-    } on FormatException {
-      return const AuthResult(ok: false, error: 'Phản hồi không hợp lệ từ máy chủ');
-    } on Exception {
-      return const AuthResult(ok: false, error: 'Không kết nối được máy chủ');
-    }
-  }
-
-  /// jsonDecode + shape check. The `as Map` on a non-map JSON (proxy pages,
-  /// literal `null`) raises TypeError — an Error, NOT an Exception — which the
-  /// `on Exception` clauses do NOT catch and the app would crash. Converting
-  /// it to FormatException keeps every caller on the handled path.
-  static Map<String, dynamic> _decodeObject(http.Response res) {
-    final decoded = jsonDecode(res.body);
-    if (decoded is! Map<String, dynamic>) {
-      throw const FormatException('Response body is not a JSON object');
-    }
-    return decoded;
-  }
-
-  /// Maps frappe's raw auth-failure payloads to Vietnamese messages. Checks the
-  /// `exc` traceback, NOT the English `Message` (text varies by version).
-  static String? _friendlyAuthError(String body) {
-    if (body.contains('currentsite.txt')) return 'Sai tài khoản hoặc mật khẩu';
-    if (body.contains('QuotaExceededError')) return 'Hết lượt đăng nhập — thử lại sau';
-    return null;
-  }
-
-  /// Authenticated GET of an /api/resource path (session or token headers).
-  Future<dynamic> getResource(String path) async {
-    final res = await _http
-        .get(Uri.parse('$baseUrl$path'), headers: _authHeaders)
-        .timeout(const Duration(seconds: 15));
-    if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}: ${res.body}');
-    return jsonDecode(res.body);
-  }
-
-  /// Current user's roles. frappe has shipped TWO shapes for `frappe.client
-  /// get_list`-style role payloads; parse both instead of assuming one:
-  ///   A: {"message": [{"role": "X"}, ...]}
-  ///   B: {"message": {"roles": {"X": {...}, ...}}}
-  Future<List<String>> fetchUserRoles() async {
-    // The logged-in email is interpolated into the JSON filters value. Raw `+`
-    // in a query string decodes to a SPACE server-side, so `user+x@...` (very
-    // common with Gmail) would silently become `user x@...` and match NO rows
-    // -> all roles disabled -> lockout. Encode the email only; the server
-    // URL-decodes the whole value once, yielding the original email in JSON.
-    final email = Uri.encodeComponent(await loggedUser());
-    final data = await getResource('/api/method/frappe.client.get_list'
-        '?doctype=Has%20Role&parenttype=User'
-        '&fields=["role"]&filters=[["parent","=","$email"]]'
-        '&limit_page_length=0');
-    final message = data['message'];
-    if (message is List) {
-      return message.map((row) => row['role'] as String).toList();
-    }
-    if (message is Map && message['roles'] is Map) {
-      return (message['roles'] as Map).keys.cast<String>().toList();
-    }
-    throw const FormatException('Unrecognised roles payload');
-  }
-
-  Future<String> loggedUser() async {
-    final data = await getResource('/api/method/frappe.auth.get_logged_user');
-    return data['message'] as String;
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
+    );
   }
 }
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.autoLoginError});
+
+  /// Non-null when auto-login TRIED but failed for a reason the user can act
+  /// on (e.g. server rejected the stored password). Silent skips (no stored
+  /// session, offline) pass null and show no scary banner.
+  final String? autoLoginError;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -203,19 +98,39 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     SharedPreferences.getInstance().then((p) {
+      // Fast-fill the two non-secret fields from (unencrypted) prefs; secrets
+      // come from SessionStore only when the user asks for them in Settings.
       _url.text = p.getString('base_url') ?? '';
       _user.text = p.getString('user') ?? '';
     });
   }
 
   Future<void> _login() async {
+    final urlError = validateBaseUrl(_url.text);
+    if (urlError != null) {
+      _snack(urlError);
+      return;
+    }
     setState(() => _busy = true);
-    final erp = ErpClient(baseUrl: _url.text.trim().replaceAll(RegExp(r'/+$'), ''));
-    final result = await erp.login(_user.text.trim(), _pass.text);
+    final baseUrl = _url.text.trim().replaceAll(RegExp(r'/+$'), '');
+    final erp = ErpClient(baseUrl: baseUrl);
+    final secret = _pass.text.trim();
+    final result = looksLikeTokenPair(secret)
+        ? await erp.loginWithToken(user: _user.text.trim(), pair: secret)
+        : await erp.login(_user.text.trim(), secret);
 
     if (result.ok) {
+      final isToken = looksLikeTokenPair(secret);
+      await SessionStore.save(
+        baseUrl: baseUrl,
+        user: _user.text.trim(),
+        secret: secret,
+        secretIsToken: isToken,
+        autoLogin: true, // default ON per owner request; toggle in Settings
+      );
+      if (erp.sid != null) await SessionStore.write('sid', erp.sid!);
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('base_url', erp.baseUrl);
+      await prefs.setString('base_url', baseUrl);
       await prefs.setString('user', _user.text.trim());
     }
     if (!mounted) return;
@@ -225,19 +140,46 @@ class _LoginScreenState extends State<LoginScreen> {
         MaterialPageRoute(builder: (_) => HomeScreen(erp: erp, fullName: result.fullName)),
       );
     } else {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(result.error ?? 'Đăng nhập thất bại')));
+      _snack(result.error ?? 'Đăng nhập thất bại');
     }
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Cám Việt — Đăng nhập')),
+      appBar: AppBar(
+        title: const Text('Cám Việt — Đăng nhập'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Cài đặt',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => SettingsScreen(onSession: (erp) {
+                Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => HomeScreen(erp: erp)));
+              }, onLogout: () {})),
+            ),
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            if (widget.autoLoginError != null)
+              Card(
+                color: Colors.amber.shade100,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text('Đăng nhập tự động thất bại: ${widget.autoLoginError}\nVui lòng đăng nhập lại.',
+                      style: const TextStyle(color: Colors.black87)),
+                ),
+              ),
             TextField(controller: _url, decoration: const InputDecoration(labelText: 'URL máy chủ ERPNext')),
             const SizedBox(height: 8),
             TextField(controller: _user, decoration: const InputDecoration(labelText: 'Tài khoản')),
@@ -247,8 +189,8 @@ class _LoginScreenState extends State<LoginScreen> {
               obscureText: true,
               onSubmitted: (_) => _busy ? null : _login(),
               decoration: const InputDecoration(
-                labelText: 'Mật khẩu',
-                helperText: 'Đăng nhập bằng mật khẩu, hoặc API key/secret của bạn',
+                labelText: 'Mật khẩu / API token',
+                helperText: 'Mật khẩu tài khoản, hoặc api_key:api_secret',
               ),
             ),
             const SizedBox(height: 20),
@@ -337,6 +279,19 @@ class _HomeScreenState extends State<HomeScreen> {
               tooltip: online ? 'Online (bấm để mô phỏng offline)' : 'Offline (bấm để online)',
             ),
           ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Cài đặt',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => SettingsScreen(
+                onSession: (erp) => Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => HomeScreen(erp: erp))),
+                onLogout: () => Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (route) => false),
+              )),
+            ),
+          ),
         ],
       ),
       drawer: Drawer(
@@ -374,7 +329,15 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 8),
           Text(_status),
           const SizedBox(height: 24),
-          if (driverMode)
+          if (_role == 'Feed Dealer Manager')
+            FilledButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => OwnerDashboardScreen(erp: widget.erp)),
+              ),
+              icon: const Icon(Icons.dashboard),
+              label: const Text('Dashboard Chủ (Mốc 2)'),
+            )
+          else if (driverMode)
             FilledButton.icon(
               onPressed: () => setState(() => _status = 'Màn giao hàng — Mốc 3'),
               icon: const Icon(Icons.local_shipping),
