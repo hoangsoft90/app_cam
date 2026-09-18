@@ -460,6 +460,35 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 - Quyết định: repo **PUBLIC** là chủ đích của chủ dự án (xác nhận trực tiếp) — ghi vết, không đổi.
 - DỪNG theo mốc: chờ review Mốc 2 trước khi làm Mốc 3 (Driver flow: giao hàng + OTP/chữ ký/ảnh/GPS).
   (Chủ dự án đã review Mốc 2: chất lượng tốt, không cần sửa.)
+## 2026-09-18 (tiếp 2) — Mốc 3 nửa backend: DELIVERY NOTE (theo quyết định của chủ dự án)
+
+- DocType `Delivery Confirmation` thêm field `delivery_note` (Link, read_only) + migrate trên site.
+- Controller tự tạo & submit phiếu xuất kho: `build_delivery_note()` / `ensure_delivery_note()`
+  (dùng `make_delivery_note` của ERPNext, warehouse lấy từ `Feed Dealer Settings.default_warehouse`,
+  KHÔNG tạo warehouse mới). OTP (final) → DN ngay trong `confirm_delivery`; Photo Only (tạm) → DN chỉ
+  khi chủ đại lý duyệt; từ chối → không bao giờ có DN.
+- **Đo được — 4 vấn đề thật phải xử lý (không đoán):**
+  1. Driver không có quyền `read` Sales Order + không có `create` Delivery Note; và
+     `frappe.flags.ignore_permissions` **không** được `has_permission` đọc → build phải chạy bằng
+     phiên server, `owner` của DN giữ nguyên người gửi.
+  2. Một lần DN bị từ chối vẫn kịp ghi Stock Ledger Entry → bin âm 10 đơn vị dù hồ sơ báo "chưa xuất
+     được" (do người gọi bắt exception ngoài rollback của request) → thêm savepoint cho bước insert/submit.
+  3. `confirm_delivery` trước đây rollback cả transaction: nó cuộn luôn cả cấu hình
+     `allow_negative_stock` mà test đặt trước đó → nay rollback theo savepoint riêng.
+  4. **`Feed Dealer Settings.default_warehouse` = "Stores - S" (công ty SANLOAN)** trong khi công ty
+     pilot là "Minh Phát Cám & VLXD" → mọi DN chết với `does not belong to company`. Đã sửa về
+     "Kho Cám - MP" và vá `ensure_settings_defaults()` để phát hiện/tự sửa lệch công ty về sau.
+- **Bằng chứng:** `p2_delivery_acceptance.run` → **`TOTAL: 33   PASS: 33   FAIL: 0`** trên site thật,
+  gồm T15a (OTP → DN submitted, tồn 20 → 19), T15b/c (tạm → không DN; duyệt → DN), T15d (từ chối →
+  không DN), T16a–d (thiếu hàng: chặn ở cả đường tài xe lẫn đường duyệt, tồn kho không nhúc nhích,
+  hồ sơ vẫn "Giao thành công tạm"). Log: `/tmp/m3_dn8.log` trong container.
+- Commit `a52a885d69f2bdf86a3b2980a864279fb93670d8` (đã push).
+- **CÂU HỎI ĐANG CHỜ CHỦ DỰ ÁN (không tự quyết):** quyết định ghi "OTP/Signature (final) → submit DN
+  NGAY", nhưng code hiện xếp **Signature = "Giao thành công tạm"** (theo addendum B9: cả Signature và
+  Photo Only chờ chủ đại lý duyệt trong ngày). Hai nguồn mâu thuẫn, ảnh hưởng trực tiếp tới việc hàng
+  có rời kho ngay hay không ⇒ chưa đổi, chờ chốt. Trong lúc chờ, Signature đi theo B9 (DN tạo khi
+  chủ duyệt).
+
 ## 2026-09-18 (tiếp) — Mốc 3 nửa backend: vòng REVIEW thứ 2
 
 - **7 lỗ hổng thật tìm được khi tự soi lại diff CHƯA commit** (không phải lint, không phải phỏng đoán).

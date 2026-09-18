@@ -131,10 +131,18 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
 - [~] Mốc 3: Driver flow (giao hàng, OTP/chữ ký/ảnh/GPS)
       - [x] **Backend DONE** 2026-09-18: DocType `Delivery Confirmation` + child `Delivery Proof Photo`
             + `feed_dealer/api.py` (confirm_delivery idempotent, approve/reject chỉ Manager) —
-            `p2_delivery_acceptance` **15/15 PASS** trên site thật (T1–T11)
+            `p2_delivery_acceptance` **15/15 PASS** trên site thật (T1–T11). Commit `ec4e3cd`.
+      - [x] **Delivery Note DONE** 2026-09-18 (theo quyết định của chủ dự án): field `delivery_note`
+            trên DC, `build_delivery_note()` dùng `make_delivery_note` + `default_warehouse` từ
+            Feed Dealer Settings (không tạo warehouse mới); OTP → DN ngay, Photo Only → DN khi chủ
+            duyệt, từ chối → không DN. `p2_delivery_acceptance` **33/33 PASS** (T15a–d, T16a–d thiếu
+            hàng chặn ở cả 2 đường, tồn kho có kiểm chứng). Commit `a52a885`.
       - [ ] Màn hình Driver trong app (danh sách giao + OTP/chữ ký/ảnh/GPS + nén ảnh) + widget test 3 nhánh
-      - [?] Cần chủ dự án quyết: gửi OTP qua SMS (chưa có provider) và có submit Delivery Note khi
-            xác nhận hay không (app chưa có pipeline DN)
+      - [?] Cần chủ dự án quyết: **Signature là final (xuất kho ngay) hay tạm (chờ chủ duyệt)?**
+            Quyết định 2026-09-18 ghi "OTP/Signature (final)" nhưng addendum B9 lại xếp Signature vào
+            nhóm tạm; code hiện theo B9 — chưa đổi, chờ chốt.
+      - [x] Cần chủ dự án quyết: gửi OTP qua SMS → chốt 2026-09-18: **BLOCKED** (không có provider),
+            giữ nhập OTP tay + nhánh Signature/Photo
 - [ ] Mốc 4: Offline queue + idempotency_key cho create được phép offline
 - [ ] Mốc 5: Guard cứng — nút thu tiền/đổi hạn mức KHÔNG THẤY (không phải disable mờ) khi offline
 - [ ] Mốc 6: test máy thật/emulator + sóng yếu + APK debug cuối cùng

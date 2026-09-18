@@ -495,3 +495,42 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
 71. **Khi test bắt được lỗi mà bản vá trước đó "đã PASS": đừng sửa test, hãy đọc kết quả.** Lượt
     Mốc 3 đầu PASS 15/15 vì bộ test CHƯA chạm nhánh lỗi; sau khi thêm T12/T13 (payload sai + ngưỡng
     kích thước) mới lộ ra #64 và 2 lỗ khác. Lỗ hổng thật là ở ĐỘ PHỦ test, không phải ở con số 15/15.
+
+## P2 Mốc 3 — Delivery Note (2026-09-18, đo trên site thật)
+
+72. **`frappe.flags.ignore_permissions` KHÔNG ảnh hưởng `frappe.has_permission()`.** Đo trên site:
+    `has_permission("Delivery Note", "create")` trả False cho Driver dù flag = True (source
+    `has_permission` không hề đọc flag). Hệ quả: mọi bước CẦN quyền của SERVER (map tài liệu, tạo
+    chứng từ kho) phải chạy bằng một phiên có quyền thật, rồi ghi lại chủ thể thật vào `owner` cho
+    audit — đừng tưởng set flag là qua được. Driver trên site chỉ có role All/Driver/Guest: vừa
+    không `read` được Sales Order, vừa không `create` được Delivery Note (nhưng danh sách đơn của
+    app vẫn chạy vì `frappe.get_all` bỏ qua quyền — đó là một khoảng trống phân quyền cần ghi lại).
+73. **SAVEPOINT cho mọi bước có side-effect mà người gọi có thể bắt exception.** Đo thật: một lần
+    submit DN bị từ chối đã ghi Stock Ledger Entry TRƯỚC khi chạm guard; vì người gọi bắt exception
+    (ngoài rollback của request), lệnh ghi đó ở lại và **tồn kho âm thêm 10 đơn vị dù hồ sơ ghi
+    "chưa xuất được"**. `frappe.db.savepoint("x")` + `rollback(save_point="x")` trong nhánh lỗi làm
+    từ chối sạch tuyệt đối.
+74. **`frappe.db.rollback()` trần cuộn cả transaction — kể cả việc KHÔNG liên quan.** Ca thật: test
+    đặt `allow_negative_stock = 0` (chưa commit), sau đó một lời từ chối của API gọi rollback trần →
+    cấu hình bị trả về 1 → test "kho không đủ hàng" thứ hai PASS trong khi KHÔNG hề test gì. Triệu
+    chứng: cùng một điều kiện, nhánh này bị chặn còn nhánh kia không. Vá: rollback theo savepoint, và
+    setup của test phải `commit()`.
+75. **Hàng phải CÓ TRƯỚC khi xuất được:** item chưa từng nhập kho → submit Delivery Note bị từ chối
+    `Valuation Rate for the Item ..., is required to do accounting entries`. Fixture test phải tạo
+    Material Receipt thật (có `basic_rate`), **và phải TOP UP về một số dương xác định** — bin âm từ
+    lần chạy trước làm mọi con số thiếu hàng trở nên vô nghĩa (`_ensure_stock()` cũ chỉ tạo khi bin =
+    0 nên bin = -40 vẫn "đủ").
+76. **`Delivery Note` KHÔNG có field `sales_order`** — liên kết nằm ở dòng hàng:
+    `Delivery Note Item.against_sales_order`. Cùng loại bẫy với #70 (`driver_deliveries` trả Sales
+    Order, khoá là `name`): trước khi viết assert, in 1 row thật để đọc đúng tên field.
+77. **`default_warehouse` sai CÔNG TY chặn toàn bộ xuất kho:** site có `Stores - S` (công ty SANLOAN)
+    trong khi công ty pilot là "Minh Phát Cám & VLXD" → mọi Delivery Note chết với
+    `Warehouse Stores - S does not belong to company ...`. Nguyên nhân sâu hơn: field này được điền
+    MỘT LẦN rồi không bao giờ được kiểm lại, nên giá trị cũ (hoặc do người đặt tay) vẫn nằm đó.
+    Vá: `ensure_settings_defaults()` giờ kiểm chéo warehouse ↔ company và tự sửa, in ra lý do.
+78. **Item tồn kho bắt buộc có warehouse trên dòng Sales Order** (`Delivery warehouse required for
+    stock item ...`). Trong vận hành thật việc này đến từ Item Default; nếu chưa cấu hình thì người
+    tạo đơn (Desk/API) phải điền — cần ghi vào checklist go-live.
+79. **Số lượng cần trừ kho phải đọc từ ĐÚNG bản ghi:** `Delivery Note Item.qty` là 60 rất khác
+    "50 đơn vị còn thiếu" trong câu lỗi; đừng lấy số trong message làm dữ liệu, cũng đừng lấy qty của
+    DN làm bằng chứng tồn kho — đọc `Bin.actual_qty` TRƯỚC/SAU để chứng minh hàng thực sự dịch chuyển.
