@@ -610,14 +610,24 @@ void main() {
         }
         if (req.url.path == '/api/method/feed_dealer.api.confirm_delivery') {
           sent.add({...req.bodyFields});
-          if (failAlways) return http.Response.bytes(utf8.encode(failureBody), 417);
+          if (failAlways) {
+            // utf-8 content-type matters even for failures: without it http
+            // decodes the body as latin-1 and the Vietnamese message becomes
+            // mojibake (same trap as the Mốc 1 test helper).
+            return _json(jsonDecode(failureBody) as Map<String, dynamic>, status: 417);
+          }
+          final method = (jsonDecode(req.bodyFields['payload']!)
+              as Map<String, dynamic>)['confirmation_method'];
+          // Behave like the real server: only OTP is final, everything else is
+          // provisional until the owner approves.
+          final provisional = method != 'OTP';
           return _json({
             'message': reply ??
                 {
                   'name': 'DEL-2026-00001',
-                  'status': 'Giao thành công',
-                  'pending_owner_approval': 0,
-                  'delivery_note': 'MAT-DN-2026-00042',
+                  'status': provisional ? 'Giao thành công tạm' : 'Giao thành công',
+                  'pending_owner_approval': provisional ? 1 : 0,
+                  'delivery_note': provisional ? null : 'MAT-DN-2026-00042',
                   'idempotent': false,
                 }
           }, status: replyStatus);
