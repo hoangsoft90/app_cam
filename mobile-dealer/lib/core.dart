@@ -265,7 +265,13 @@ class ErpClient {
   /// Mốc 3 — orders the driver may deliver, with the confirmation state.
   /// Rows come from `feed_dealer.api.driver_deliveries` (server owns the window:
   /// submitted orders, live confirmation if any). Keys are Sales Order fields
-  /// plus `confirmation` / `confirmation_status` / `pending_owner_approval`.
+  /// plus `confirmation` / `confirmation_status` / `pending_owner_approval` /
+  /// `confirmation_delivery_note` (set only once a FINAL confirmation has put
+  /// stock out) / `confirmation_reject_reason` (why to file again).
+  ///
+  /// The server caps this at 200 rows and defaults to 50; neither side pages
+  /// yet, so a dealer with more than 50 outstanding orders needs pagination
+  /// before this screen is used for real (noted in working.md).
   Future<List<Map<String, dynamic>>> driverDeliveries({int limit = 50}) async {
     final data = await getResource(
       Uri(path: '/api/method/feed_dealer.api.driver_deliveries', queryParameters: {'limit': '$limit'})

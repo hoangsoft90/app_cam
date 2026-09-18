@@ -4,6 +4,37 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Đang làm
 
+- [2026-09-18] **P2 Mốc 3 — Driver UI + hợp đồng API cho UI. ĐÃ TEST trên site thật (clear-cache
+  trước khi chạy), ĐÃ COMMIT** — hash dán nguyên văn từ `git log -1 --format='%H %s'`:
+  ```
+  58f21d18f2091be700ac7ca9cb58d0d803b4504f feat(P2-M3): driver list reports the Delivery Note and the rejection reason
+  ```
+  **Phát hiện đáng nhớ của lượt này — CI xanh KHÔNG có nghĩa là app chạy được:** code Flutter
+  (đã commit, CI `35314907159` success) đọc `row['confirmation_delivery_note']` và
+  `row['confirmation_reject_reason']`, nhưng `driver_deliveries` trên site **chưa hề trả 2 field đó**
+  — chúng là bản sửa backend còn nằm **chưa commit ở máy local**. Nghĩa là app build thành công,
+  40 test xanh, mà màn Driver vẫn trống 2 chỗ. Kiểm bằng `grep` trong container thật
+  (`docker exec … grep -n confirmation_delivery_note …/api.py` → rỗng; local 17.671 B vs container
+  17.245 B). Bài học: app và site deploy bằng 2 đường khác nhau ⇒ phải kiểm **site** mới biết
+  "đã xong", không kiểm CI.
+  Đóng bằng: push có kiểm nội dung → grep lại trong container (thấy dòng 375) → clear-cache →
+  chạy acceptance. Thêm **T17a–c** để hợp đồng này không lặng lẽ hỏng lần nữa (chính lỗi vừa rồi
+  sẽ làm T17 đỏ).
+  Bằng chứng trên **revision cuối** (sau push + clear-cache):
+  ```
+  /tmp/m3_t17.log
+  T17a final confirmation -> row carries the Delivery Note number   PASS  row reports DN MAT-DN-2026-00020
+  T17b rejected confirmation -> row carries the reason, no DN       PASS  row reports reason 'ảnh mờ, chụp lại'
+  T17c provisional confirmation -> no Delivery Note, pending flag    PASS  DEL-2026-27753 pending, no Delivery Note
+  TOTAL: 36   PASS: 36   FAIL: 0        P2 DELIVERY ACCEPTANCE: ALL PASS
+  ```
+  Không regress phần khác: `driver_deliveries` chỉ được dùng bởi app + p2 (grep toàn app: 0 caller
+  khác), nên p0/p1a–p1d/p1g không bị ảnh hưởng.
+  CI cho commit này: run `35316316107` (đang chạy lúc ghi dòng này).
+  Việc còn treo ghi lại (chưa làm, chưa chặn): **phân trang** — `driver_deliveries` cap 200/ mặc định
+  50, `ErpClient.driverDeliveries()` gọi mặc định 50; dealer > 50 đơn đang giao sẽ bị cắt im lặng.
+  Đã ghi chú ngay trong doc comment `core.dart` để lần sau không phải đoán lại.
+
 - [2026-09-17] **Review round sau P1G — cứng hóa KIỂM CHỨNG. ĐÃ TEST trên site thật (clear-cache), CHƯA COMMIT**
   — review **không tìm ra lỗi trong code P1G/P1D**, nhưng tìm ra 2 lỗ hổng ở cách kiểm chứng, đã đóng bằng code:
   (1) `--to-file` không đảm bảo thứ tự ⇒ `debug` đọc DB khi `cleanup` còn xoá dở ⇒ `8/9` vô nghĩa;

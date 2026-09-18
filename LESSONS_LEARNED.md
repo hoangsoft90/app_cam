@@ -534,3 +534,18 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
 79. **Số lượng cần trừ kho phải đọc từ ĐÚNG bản ghi:** `Delivery Note Item.qty` là 60 rất khác
     "50 đơn vị còn thiếu" trong câu lỗi; đừng lấy số trong message làm dữ liệu, cũng đừng lấy qty của
     DN làm bằng chứng tồn kho — đọc `Bin.actual_qty` TRƯỚC/SAU để chứng minh hàng thực sự dịch chuyển.
+80. **CI xanh KHÔNG có nghĩa app chạy được — client và server deploy bằng 2 đường khác nhau.**
+    Ca thật 2026-09-18: `driver_delivery.dart` đọc `row['confirmation_delivery_note']` và
+    `confirmation_reject_reason`; CI build APK thành công (`40 tests passed`, `BUILD SUCCESSFUL`),
+    màn Driver vẫn trống 2 chỗ, vì bản sửa backend trả 2 field đó còn **chưa commit, chưa deploy**.
+    Không test nào đỏ vì phía Dart, khoá không tồn tại thì trả `null` — im lặng.
+    Cách phát hiện (đã dùng, nên lặp lại): so **file triển khai thật** với file local —
+    `docker exec <container> grep -n <field> <path trong container>` → rỗng, kèm so kích thước
+    (local 17.671 B vs container 17.245 B). Đừng kiểm bằng CI, đừng kiểm bằng `git status`.
+    Cách chặn tái phát: viết assert NGAY TRÊN SERVER cho đúng hợp đồng mà UI cần (ở đây T17a–c) —
+    lần sau quên deploy là suite đỏ ngay tại chỗ.
+81. **Cửa sổ dữ liệu bị cắt im lặng biến "API hỏng" thành kết luận sai.** `driver_deliveries` mặc
+    định 50, cap 200, sắp xếp theo `delivery_date asc`; đơn mới tạo (ngày giao xa nhất) là thứ bị cắt
+    ĐẦU TIÊN khi vượt ngưỡng, mà triệu chứng chỉ là `next(...) -> None`. Test hợp đồng kiểu này phải
+    (a) gọi sát cap (`limit=200`) và (b) đưa **số dòng nhận được** vào câu lỗi — nếu không, người
+    debug sau sẽ đi tìm lỗi phân quyền/điều kiện lọc trong khi thật ra chỉ là phân trang.

@@ -128,7 +128,7 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
       `35306182930`: 35 test PASS + artifact `camviet-debug-apk` 79 MB). Duyệt SO qua REST PUT
       `docstatus=1` → hook hạn mức phía server vẫn chạy, bị từ chối thì hiện message server
       (server-wins, không force). Chờ chủ dự án review trước Mốc 3.
-- [~] Mốc 3: Driver flow (giao hàng, OTP/chữ ký/ảnh/GPS)
+- [x] Mốc 3: Driver flow (giao hàng, OTP/chữ ký/ảnh/GPS) — **DONE 2026-09-18**
       - [x] **Backend DONE** 2026-09-18: DocType `Delivery Confirmation` + child `Delivery Proof Photo`
             + `feed_dealer/api.py` (confirm_delivery idempotent, approve/reject chỉ Manager) —
             `p2_delivery_acceptance` **15/15 PASS** trên site thật (T1–T11). Commit `ec4e3cd`.
@@ -137,7 +137,16 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
             Feed Dealer Settings (không tạo warehouse mới); OTP → DN ngay, Photo Only → DN khi chủ
             duyệt, từ chối → không DN. `p2_delivery_acceptance` **33/33 PASS** (T15a–d, T16a–d thiếu
             hàng chặn ở cả 2 đường, tồn kho có kiểm chứng). Commit `a52a885`.
-      - [ ] Màn hình Driver trong app (danh sách giao + OTP/chữ ký/ảnh/GPS + nén ảnh) + widget test 3 nhánh
+      - [x] **Màn hình Driver DONE** 2026-09-18 (`mobile-dealer/lib/driver_delivery.dart`): danh sách
+            giao + sheet xác nhận 3 nhánh (OTP / chữ ký vẽ tay / ảnh+GPS), nén ảnh phía client
+            (`image_picker maxWidth/quality`), `idempotency_key` sinh 1 lần cho cả sheet (bấm lại
+            không sinh khoá mới), ONLINE-ONLY như Mốc 2. Không hiện thu tiền/đổi hạn mức cho Driver.
+            CI `35314907159` **success**: `🎉 40 tests passed` + artifact `camviet-debug-apk`
+            80.683.784 B (`BUILD SUCCESSFUL in 4m 11s`). Commit `c98d1c3` → `afafa8d` → `552ea61`
+            → `89f9541` → `8cffc35`.
+      - [x] **Hợp đồng API cho UI** 2026-09-18: `driver_deliveries` trả thêm `delivery_note` +
+            `reject_reason` (màn Driver cần hiện số phiếu xuất và lý do bị từ chối) — deploy lên site
+            + `p2_delivery_acceptance` **36/36 PASS** (T17a–c assert đúng hợp đồng này). Commit `58f21d1`.
       - [x] **ĐÃ CHỐT 2026-09-18:** Signature **không** xuất kho ngay (cùng nhóm Photo Only, chờ
             Manager duyệt); OTP = final → DN ngay. Khớp code hiện tại, UI Driver ghi rõ cho tài xế.
       - [x] Cần chủ dự án quyết: gửi OTP qua SMS → chốt 2026-09-18: **BLOCKED** (không có provider),
