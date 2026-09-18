@@ -830,6 +830,10 @@ void main() {
       await tester.enterText(find.byType(TextField), '123456');
       await tester.pumpAndSettle();
       app.isOnline.value = false;
+      // The connectivity flag drives a ValueListenableBuilder, so the subtree
+      // needs a frame before its label reflects the new state (measured: the
+      // assertion below failed on CI without this pump).
+      await tester.pump();
       // The button SAYS what will happen (a queued row, not a sent one).
       expect(find.text('Lưu chờ gửi'), findsOneWidget);
       expect(find.textContaining('xác nhận sẽ được lưu trên máy'), findsOneWidget);
