@@ -1,8 +1,10 @@
-gradle-wrapper.jar
+# gradle wrapper MUST be committed: CI builds with ./gradlew directly and
+# there is no local flutter tooling to regenerate it there.
+#gradle-wrapper.jar
 /.gradle
 /captures/
-/gradlew
-/gradlew.bat
+#/gradlew
+#/gradlew.bat
 /local.properties
 GeneratedPluginRegistrant.java
 .cxx/
