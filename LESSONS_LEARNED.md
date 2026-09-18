@@ -573,3 +573,22 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
     trại có router nhưng không ra internet). Cài bằng cách cho MỌI round trip đi qua một hàm bọc duy
     nhất, hàm này bật/tắt cờ và ném một exception RIÊNG (`OfflineFailure`) — nhờ vậy tầng trên phân
     biệt được "chưa tới server" (được phép xếp hàng) với "server đã trả lời và từ chối" (cấm xếp hàng).
+
+87. **Test viết để chứng minh một race CŨNG phải nhắm đúng cửa sổ race.** Ca thật (Mốc 4 review):
+    test "discard trong lúc flush phải bị từ chối" gọi `flush()` rồi lập tức `discard()` — nhưng
+    `flush()` còn `await load()` TRƯỚC khi giơ cờ, nên discard đi trước một microtask và thắng hợp lệ
+    ⇒ CI đỏ với "Expected throws QueueRejected, Actual emitted null". Code đúng, test sai: muốn
+    chứng minh một khoảng thời gian phải ĐỢI vào đúng khoảng đó (đợi pass đang upload, rồi mới bấm).
+    Kèm 2 lỗ thật cùng lượt review, cả hai đều là lỗi THỜI GIAN chứ không phải logic: (a) 2 flush
+    chồng nhau (timer + listener + nút bấm) gửi trùng row ⇒ serialize bằng cờ in-flight; (b) listener
+    connectivity bắn trước khi queue được dựng ở cold start ⇒ lần flush đầu là no-op. Bài học chung:
+    **mọi thứ chạy theo sự kiện + timer đều phải hỏi "chuyện gì nếu hai cái nổ cùng một khoảnh khắc".**
+88. **Một tài nguyên dùng chung phải có MỘT chủ sở hữu.** Mỗi đường vào HomeScreen (auto login,
+    login tay, Settings) từng tạo một `OfflineQueue` riêng trên cùng prefs key ⇒ 2 queue cùng flush
+    các row giống nhau, counter lệch nhau. Nay queue là static dùng chung. Rule: thứ được xây từ
+    storage bền vững (prefs/db) phải là singleton — hoặc injected từ trên, hoặc static, không bao giờ
+    "mỗi màn hình tự dựng một cái".
+89. **Lỗi xác thực (401) KHÔNG được coi là từ chối công việc, nhưng cũng KHÔNG được để vòng lặp đánh
+    server.** Trước: 401 chỉ hiện snackbar rồi pass sau tiếp tục gửi ⇒ dồn dập request không hồi end
+    tới khi bị rate-limit. Nay: giữ row (401 không phải quyết định về payload) NHƯNG đẩy user về màn
+    Login ngay — dừng cả vòng lặp bằng cách cắt nguyên nhân (phiên hết hạn).
