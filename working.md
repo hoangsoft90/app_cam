@@ -4,6 +4,33 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Đang làm
 
+- [2026-09-18] **Review Mốc 4 — tìm thêm 6 lỗ hổng thật, đã vá, CI xanh trên revision cuối** —
+  hash dán nguyên văn từ `git log -1 --format='%H %s'`:
+  ```
+  12aa2979d2a66f09610e5eece173f598b130cd3d fix(P2-M4): the discard race test raced the race itself
+  ```
+  (chuỗi review-fix: `dec1a40` → `12aa297`). Số CI lấy từ GitHub API: run `35324800159` **success** —
+  `No issues found`, **`54 tests passed`** (+2 test chống race), artifact `camviet-debug-apk`
+  **80.717.531 B**, `BUILD SUCCESSFUL in 4m 6s`.
+  Sáu lỗ (đều đã vá + có test hoặc có lý do rõ):
+  1. **Hai flush chồng nhau gửi trùng row** (timer 30s + listener connectivity + nút bấm có thể nổ cùng lúc)
+     ⇒ serialize: pass đang chạy thắng, pass sau về no-op report. Test mới chứng minh 2 flush đồng thời
+     chỉ gửi 1 lần.
+  2. **`discard()` giữa chừng pass có thể "hồi sinh" row đã xoá** (pass duyệt snapshot, `_replace` ghi
+     lại row đã bị xoá) ⇒ từ chối discard khi đang flush, có thông báo rõ cho user. Test mới chứng minh.
+  3. **401 chỉ hiện snackbar** ⇒ các pass sau cứ đánh vào server không hồi end; nay hết phiên thì đẩy
+     user về Login (row vẫn nằm trên disk, đăng nhập lại là gửi tiếp).
+  4. **Mỗi đường vào HomeScreen (auto login / login tay / Settings) tạo một OfflineQueue riêng** trên
+     cùng prefs key ⇒ 2 queue cùng flush các row giống nhau. Nay queue là static dùng chung.
+  5. **TOCTOU ở nhánh offline**: `isOnline` có thể bật lại trong lúc driver đang điền sheet ⇒ khi xếp
+     hàng, kiểm lại cờ; online thật thì thử gửi trực tiếp 1 lần (cùng key) thay vì để row nằm chờ
+     trong khi máy đang có mạng.
+  6. **Thứ tự khởi động**: listener connectivity bắn trước khi `_openQueue()` dựng queue ⇒ lần flush
+     đầu là no-op, row tồn đọng phải chờ bấm tay. Nay flush chỉ khi queue đã tồn tại.
+  Bài học đã ghi LESSONS #87: test viết để chứng minh một race CŨNG phải tự bắt được race đó — test
+  discard-race đầu tiên bấm discard trong cùng microtask với `flush()` (flag chưa giơ) và "thắng"
+  một cách hợp lệ ⇒ đỏ ảo trên CI. Test race phải nhắm đúng cửa sổ race (đợi vào giữa lúc upload).
+
 - [2026-09-18] **P2 Mốc 4 — Offline queue + sync engine + conflict log. ĐÃ TEST trên CI, ĐÃ COMMIT**
   — hash dán nguyên văn từ `git log -1 --format='%H %s'`:
   ```
