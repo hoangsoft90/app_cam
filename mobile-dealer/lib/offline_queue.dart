@@ -167,12 +167,14 @@ class FlushReport {
 typedef SendDeliveryPayload = Future<DeliveryResult> Function(Map<String, dynamic> payload);
 
 class OfflineQueue {
-  OfflineQueue({required SharedPreferences prefs, required SendDeliveryPayload send})
-      : _prefs = prefs,
-        _send = send;
+  /// Public fields (not `_prefs`/`_send`) on purpose: Dart forbids private NAMED
+  /// parameters, and the analyzer requires an initializing formal here — the
+  /// alternative is a lint warning, and this project's CI treats those as
+  /// failures ("CI is the only compiler" — LESSONS_LEARNED #60).
+  OfflineQueue({required this.prefs, required this.send});
 
-  final SharedPreferences _prefs;
-  final SendDeliveryPayload _send;
+  final SharedPreferences prefs;
+  final SendDeliveryPayload send;
   final List<QueuedMutation> _rows = [];
   bool _loaded = false;
 
@@ -189,7 +191,7 @@ class OfflineQueue {
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
-    final raw = _prefs.getString(kQueuePrefKey);
+    final raw = prefs.getString(kQueuePrefKey);
     if (raw == null || raw.isEmpty) return;
     try {
       final decoded = jsonDecode(raw);
@@ -284,7 +286,7 @@ class OfflineQueue {
     for (final row in ordered) {
       attempted += 1;
       try {
-        await _send(row.payload);
+        await send(row.payload);
         _rows.removeWhere((r) => r.id == row.id);
         sent += 1;
         await _save();
@@ -336,7 +338,7 @@ class OfflineQueue {
   }
 
   Future<void> _save() async {
-    await _prefs.setString(
+    await prefs.setString(
       kQueuePrefKey,
       jsonEncode(_rows.map((r) => r.toJson()).toList()),
     );
