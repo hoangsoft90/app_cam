@@ -340,7 +340,18 @@ def driver_deliveries(limit=50):
 	confirmations = frappe.get_all(
 		"Delivery Confirmation",
 		filters={"sales_order": ["in", [o.name for o in orders]] or [""]},
-		fields=["name", "sales_order", "status", "pending_owner_approval", "confirmation_method"],
+		fields=[
+			"name",
+			"sales_order",
+			"status",
+			"pending_owner_approval",
+			"confirmation_method",
+			# The driver app shows WHICH stock document came out of a final
+			# confirmation, so the field has to be in this payload (not a new
+			# endpoint: same door the app already uses).
+			"delivery_note",
+			"reject_reason",
+		],
 		limit_page_length=0,
 	)
 	# A rejected confirmation may be followed by a re-filed one for the SAME order
@@ -361,6 +372,8 @@ def driver_deliveries(limit=50):
 		row["confirmation"] = confirmation.name if confirmation else None
 		row["confirmation_status"] = confirmation.status if confirmation else None
 		row["pending_owner_approval"] = int(confirmation.pending_owner_approval or 0) if confirmation else 0
+		row["confirmation_delivery_note"] = confirmation.delivery_note if confirmation else None
+		row["confirmation_reject_reason"] = confirmation.reject_reason if confirmation else None
 		rows.append(row)
 	return rows
 

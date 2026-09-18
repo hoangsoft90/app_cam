@@ -40,6 +40,9 @@ here instead of on a driver's phone.
       owner approves (T15b), a rejection never creates one (T15c), and when the
       warehouse cannot cover the order the whole action is refused - no record is
       left claiming "giao thành công" with no stock document (T15d/T15e)
+  T17 the driver-list payload carries what the app actually renders:
+      `confirmation_delivery_note` after a final confirmation, the rejection
+      reason after a rejection, and NO Delivery Note while still provisional
 
 Fixtures: customer + submitted Sales Order under the P2-DELIVERY-ACCEPT prefix,
 plus two acceptance-only accounts (Driver, Manager). `run()`/`debug()` clean up
@@ -1061,6 +1064,117 @@ def _t16_stock_shortage(report):
 		_restore_allow_negative_stock()
 
 
+def _t17_driver_list_payload(report):
+	"""The two fields the driver app renders: which stock document came out, and why
+	a delivery was rejected.
+
+	The Flutter screen reads `confirmation_delivery_note` (shows the Delivery Note
+	number once an OTP delivery is final) and `confirmation_reject_reason` (tells the
+	driver what to fix before filing again). Neither field existed when that screen
+	was written, so an API change back would break the UI while every other check
+	here stayed green.
+
+	`limit=200` (the endpoint's cap): earlier checks leave their orders behind, and
+	the default 50 would silently truncate the row being asserted on.
+	"""
+	# 1. Final OTP -> the row must name the Delivery Note that came out of it.
+	final_order = _stock_order(_customer("LIST-FINAL"), 100_000, submit=True)
+	with _As(DRIVER_EMAIL):
+		final = confirm_delivery(_payload(final_order, _key("listfinal"), "OTP", otp_code="112233"))
+		rows = driver_deliveries(200)
+	final_row = next((r for r in rows if r["name"] == final_order.name), None)
+
+	def final_row_carries_dn():
+		if final_row is None:
+			raise AssertionError(
+				f"order {final_order.name} is missing from the driver list ({len(rows)} rows)"
+			)
+		doc = frappe.get_doc("Delivery Confirmation", final["name"])
+		if not doc.delivery_note:
+			raise AssertionError("the final confirmation stored no Delivery Note to report")
+		if final_row.get("confirmation_delivery_note") != doc.delivery_note:
+			raise AssertionError(
+				f"the app would show {final_row.get('confirmation_delivery_note')!r}, "
+				f"the stored document is {doc.delivery_note!r}"
+			)
+		if final_row.get("confirmation_reject_reason"):
+			raise AssertionError(
+				"a rejection reason leaked into a final confirmation: "
+				f"{final_row['confirmation_reject_reason']!r}"
+			)
+		return f"row reports DN {doc.delivery_note}"
+
+	report.check("T17a final confirmation -> row carries the Delivery Note number", final_row_carries_dn)
+
+	# 2. Rejected and NOT re-filed -> the row must carry the reason, otherwise the
+	#    app cannot tell the driver what to do about it.
+	rejected_order = _order(_customer("LIST-REJECT"), 100_000, submit=True)
+	with _As(DRIVER_EMAIL):
+		filed = confirm_delivery(
+			_payload(
+				rejected_order,
+				_key("listreject"),
+				"Signature",
+				signature_png=PNG_1PX,
+				no_otp_reason="khách ký tay",
+				gps_latitude=10.5,
+				gps_longitude=106.5,
+			)
+		)
+	with _As(MANAGER_EMAIL):
+		reject_delivery(filed["name"], reason="ảnh mờ, chụp lại")
+	with _As(DRIVER_EMAIL):
+		reject_row = next((r for r in driver_deliveries(200) if r["name"] == rejected_order.name), None)
+
+	def rejected_row_carries_reason():
+		if reject_row is None:
+			raise AssertionError("the rejected order vanished from the driver list")
+		if reject_row.get("confirmation") != filed["name"]:
+			raise AssertionError(f"wrong confirmation reported: {reject_row.get('confirmation')}")
+		if reject_row.get("confirmation_reject_reason") != "ảnh mờ, chụp lại":
+			raise AssertionError(
+				f"the driver is not told why: {reject_row.get('confirmation_reject_reason')!r}"
+			)
+		if reject_row.get("confirmation_delivery_note"):
+			raise AssertionError("a rejected delivery reports a Delivery Note")
+		return f"row reports reason {reject_row['confirmation_reject_reason']!r}"
+
+	report.check(
+		"T17b rejected confirmation -> row carries the reason, no Delivery Note",
+		rejected_row_carries_reason,
+	)
+
+	# 3. Provisional (Signature / Photo Only) -> no Delivery Note yet: nothing left
+	#    the warehouse, and the app must not claim otherwise.
+	prov_order = _stock_order(_customer("LIST-PROV"), 100_000, submit=True)
+	with _As(DRIVER_EMAIL):
+		prov = confirm_delivery(
+			_payload(
+				prov_order,
+				_key("listprov"),
+				"Photo Only — Needs Approval",
+				no_otp_reason="khách đi vắng",
+				gps_latitude=10.6,
+				gps_longitude=106.6,
+				photos=[PNG_1PX],
+			)
+		)
+		prov_row = next((r for r in driver_deliveries(200) if r["name"] == prov_order.name), None)
+
+	def provisional_has_no_dn():
+		if prov_row is None:
+			raise AssertionError("the provisional order vanished from the driver list")
+		if prov_row.get("confirmation_delivery_note"):
+			raise AssertionError(
+				f"stock left the warehouse before approval: {prov_row['confirmation_delivery_note']}"
+			)
+		if not prov_row.get("pending_owner_approval"):
+			raise AssertionError("the row does not tell the app an approval is pending")
+		return f"{prov_row['confirmation']} pending, no Delivery Note"
+
+	report.check("T17c provisional confirmation -> no Delivery Note, pending flag on", provisional_has_no_dn)
+
+
 CHECKS = (
 	("T1", _t1_otp),
 	("T2", _t2_client_cannot_force),
@@ -1078,6 +1192,7 @@ CHECKS = (
 	("T14", _t14_driver_list_prefers_live),
 	("T15", _t15_delivery_note),
 	("T16", _t16_stock_shortage),
+	("T17", _t17_driver_list_payload),
 )
 
 
