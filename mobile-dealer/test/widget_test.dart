@@ -8,6 +8,7 @@ import 'package:http/testing.dart';
 import 'package:mobile_dealer/main.dart' as app;
 import 'package:mobile_dealer/owner_dashboard.dart';
 import 'package:mobile_dealer/restore_session.dart';
+import 'package:mobile_dealer/session.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 http.Response _json(Map<String, dynamic> body, {int status = 200, Map<String, String> headers = const {}}) =>
@@ -271,7 +272,8 @@ void main() {
       expect(rows.single['name'], 'CUST-001');
       expect(calls.single.queryParameters['doctype'], 'Batch Debt');
       expect(calls.single.queryParameters['limit_page_length'], '5');
-      expect(calls.single.query, contains('status%22%3A%20%5B%22in%22')); // encoded JSON
+      // Uri encodes JSON densely: `{"status":["in",...]}` → %7B%22status%22%3A%5B%22in%22
+      expect(calls.single.query, contains('filters=%7B%22status%22%3A%5B%22in%22'));
     });
 
     test('getList rejects a non-list payload', () async {
@@ -350,9 +352,10 @@ void main() {
 
       expect(find.text('Khách'), findsOneWidget);
       expect(find.text('Lứa'), findsOneWidget);
-      // 600,000đ renders twice: the receivables stat chip AND the debt row
-      // (single debt, so the sum equals its outstanding).
-      expect(find.text('600,000đ'), findsNWidgets(2));
+      // 600,000đ appears in the receivables stat chip; the debt row renders it
+      // inside a longer subtitle string (matched by textContaining below).
+      expect(find.text('600,000đ'), findsOneWidget);
+      expect(find.textContaining('còn 600,000đ (đã trả 400,000đ)'), findsOneWidget);
       expect(find.text('SO-001'), findsOneWidget);
       expect(find.text('Một phần'), findsOneWidget);
     });
@@ -376,10 +379,10 @@ void main() {
       final client = MockClient((req) async {
         if (req.method == 'PUT') {
           submitted = true;
-          return http.Response(jsonEncode({
+          return _json({
             'success': false,
             '_server_messages': jsonEncode(['Hạn mức tín dụng không đủ cho đơn này']),
-          }), 417);
+          }, status: 417);
         }
         return erpBackend()(req);
       });
@@ -399,7 +402,10 @@ void main() {
   });
 
   group('restoreSession (auto-login — Mốc 1.5)', () {
-    setUp(() => FlutterSecureStorage.setMockInitialValues(const {}));
+    // MUTABLE map, deliberately: the plugin's test platform writes into the very
+    // map it is handed, so a `const {}` literal makes every write throw
+    // "Cannot modify unmodifiable map" (measured on CI).
+    setUp(() => FlutterSecureStorage.setMockInitialValues(<String, String>{}));
 
     test('first launch: no stored session → silent null', () async {
       final (erp, error) = await restoreSession(client: MockClient((req) async => _json({})));
@@ -410,7 +416,7 @@ void main() {
     test('token session (api_key:api_secret) is restored via probe', () async {
       // Regression for the `token_pair`/`secret` key mismatch caught in review:
       // the reader used to look up a key no writer ever created.
-      FlutterSecureStorage.setMockInitialValues(const {
+      FlutterSecureStorage.setMockInitialValues(<String, String>{
         'base_url': 'https://x.example',
         'user': 'owner@example.com',
         'secret': 'K:S',
@@ -429,7 +435,7 @@ void main() {
     });
 
     test('expired sid + stored password re-logins when auto_login is on', () async {
-      FlutterSecureStorage.setMockInitialValues(const {
+      FlutterSecureStorage.setMockInitialValues(<String, String>{
         'base_url': 'https://x.example',
         'user': 'owner@example.com',
         'secret': 'pw',
@@ -451,10 +457,14 @@ void main() {
       expect(error, isNull);
       expect(erp, isNotNull);
       expect(erp!.sid, 'fresh');
+      // The refreshed sid was persisted for the next launch (this is the write
+      // that used to blow up with an unmodifiable map in the test).
+      expect(await SessionStore.read('sid'), 'fresh');
+      expect(await SessionStore.read('sid'), isNot('dead-cookie'));
     });
 
     test('auto_login OFF: dead session → silent null (no secret re-login)', () async {
-      FlutterSecureStorage.setMockInitialValues(const {
+      FlutterSecureStorage.setMockInitialValues(<String, String>{
         'base_url': 'https://x.example',
         'user': 'owner@example.com',
         'secret': 'pw',
