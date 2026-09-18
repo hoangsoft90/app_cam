@@ -1,4 +1,4 @@
-# checklist.md — trạng thái công việc P0 → P1G (cập nhật 2026-09-17)
+# checklist.md — trạng thái công việc P0 → P2 (cập nhật 2026-09-18)
 
 Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` chưa làm · `[?]` cần hỏi lại user
 
@@ -28,9 +28,16 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
 - [x] Bằng chứng `P1G REPORTS: ALL PASS` 4/4 (mọi report chạy qua chính runner của Desk, có số dòng)
 - [x] Exit Gate Phase 1 → `EXIT_GATE_PHASE1.md`: 5/7 tiêu chí PASS, **Performance + UX NOT ASSESSABLE**
 - [x] Regression đầy đủ sau khi sửa: P0 9/9 · P1A 8/8 · P1B 10/10 · P1C 10/10 · P1D 8/8 · P1F 9/9
-- [ ] Tài khoản Desk thật (Manager/Staff) + role `Driver` cho P2 — **cần chủ dự án** (mật khẩu/chính sách)
-- [ ] Ngưỡng hiệu năng + đo trên dữ liệu lớn — chưa đủ điều kiện đánh giá
-- [ ] **P0.5 import nợ đầu kỳ** — BẮT BUỘC trước go-live với dữ liệu khách thật (xem next.md)
+- [x] Tài khoản TEST cho P2 — **đã tạo 2026-09-18** (`p2_test_accounts.run` EXIT 0): role `Driver`
+      (desk_access=0) + `p2-test-{owner,staff,driver}@example.com`, mật khẩu random in 1 lần, không
+      lưu repo. Tài khoản THẬT + chính sách mật khẩu vẫn để dành go-live checklist.
+- [x] Ngưỡng hiệu năng + đo trên dữ liệu lớn — **đã đo 2026-09-17** (perf smoke 2.000 SI: build 33.3s
+      → on_submit đơn lẻ, integrity, reports — số thật trong `EXIT_GATE_PHASE1.md`; Performance
+      chuyển NOT ASSESSABLE → PASS with caveat), commit `1a74647`
+- [x] **P0.5 import nợ đầu kỳ — ĐÃ DONE 2026-09-17**: JE (Dr AR/Cr Opening Equity) + Batch Debt
+      `is_opening_balance=1`, reconcile diff = 0 trên dataset mẫu, `p05_acceptance` **6/6 PASS từ site
+      trắng** + mutation-check guard adopt JE; regression P0–P1F xanh. Commit `5f05dbe`. Còn lại:
+      chạy import với file Excel/CSV dữ liệu KHÁCH THẬT khi go-live (path đã sẵn `scripts/migration/`)
 
 ## B0b. Review round sau P1G (2026-09-17) — tự soát, tìm ra lỗi ở phần KIỂM CHỨNG
 
@@ -90,16 +97,33 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
 - [!] **P1E e-invoice = BLOCKED** — thiếu sandbox provider (VNPT/Viettel/MISA) + mã số thuế;
       `result_P1E_BLOCKED_2026-09-17.txt` nêu đúng 4 thứ cần user cấp. ĐÚNG thứ tự chain: dừng đây,
       không nhảy phase, không viết mock provider
-- [ ] **P1G** (7 báo cáo Desk + script đối chiếu AR vs Batch Debt + Exit Gate Phase 1) — việc kế tiếp
-- [ ] **P0.5 (import nợ đầu kỳ) — BẮT BUỘC trước go-live với dữ liệu thật** (xem `next.md`)
+- [x] **P1G** (7 báo cáo Desk + script đối chiếu AR vs Batch Debt + Exit Gate Phase 1) — DONE,
+      xem mục B0 (INTEGRITY 9/9 · REPORTS 4/4 · Exit Gate 5/7 PASS + Performance PASS with caveat)
+- [x] **P0.5 (import nợ đầu kỳ)** — DONE 2026-09-17 (chi tiết mục B0; commit `5f05dbe`)
 - [x] **Commit ban đầu** — đã làm: `eb75222` (P0+P1A+P1B), `0355d6b` (vá refund + khoá NULL),
       `0e89ce7` (bỏ track `__pycache__`)
 - [x] **Commit P1C** — đã duyệt + commit `7c62129` (task 11.9 đóng)
-- [ ] P0.5: import nợ đầu kỳ + tạo `opening_journal_entry` thật
+- [x] P0.5: import nợ đầu kỳ + `opening_journal_entry` thật (JE per khoản nợ, reconcile diff = 0)
 - [x] ~~2 lỗ hổng P1B~~ — **đã đóng ở P1C**: hook `Unreconcile Payment` (P1B T8) + row lock FIFO
       (P1B T9); phần còn lại của v16 (cancel Unreconcile Payment không re-link) đã ghi rõ ở D16
-- [ ] P1B còn thiếu so với plan: phân bổ **thủ công** (hiện chỉ FIFO), nhánh Journal Entry riêng cho
-      nợ đầu kỳ, đẩy `returned_amount` từ credit note (P1D)
+- [~] P1B còn thiếu so với plan: phân bổ **thủ công** (hiện chỉ FIFO) — còn mở; ~~nhánh Journal Entry
+      riêng cho nợ đầu kỳ~~ (đóng bởi P0.5); ~~đẩy `returned_amount` từ credit note~~ (đóng bởi P1D)
+
+## C2. P2 — Internal Mobile (bắt đầu 2026-09-18)
+
+- [x] Quyết định chủ dự án: **Android-only** cho P2 (nhóm Chủ/NV/Tài xế dùng Android 100%) —
+      không cần Xcode/iOS; nếu sau này cần thì làm bổ sung riêng, không chặn P2
+- [x] Môi trường build: Flutter 3.47.2 + Android SDK **trên GH Actions** (cấm build local —
+      owner policy 2026-09-18, tool local đã xoá); workflow `build-debug-apk.yml` gradle trực tiếp,
+      không keystore/EAS → **GREEN run 6** (`35299833093`), artifact `camviet-debug-apk` ~72 MB
+- [x] Test accounts + role Driver sẵn sàng (mục B0)
+- [ ] Mốc 1: scaffold + login REST + multi-role switcher
+- [ ] Mốc 2: Owner dashboard (khách/lứa/nợ/duyệt SO) — online-only trước
+- [ ] Mốc 3: Driver flow (giao hàng, OTP/chữ ký/ảnh/GPS)
+- [ ] Mốc 4: Offline queue + idempotency_key cho create được phép offline
+- [ ] Mốc 5: Guard cứng — nút thu tiền/đổi hạn mức KHÔNG THẤY (không phải disable mờ) khi offline
+- [ ] Mốc 6: test máy thật/emulator + sóng yếu + APK debug cuối cùng
+- Quy tắc xuyên suốt: KHÔNG mutation tài chính khi offline · conflict server-wins · báo cáo theo mốc
 
 ## D. Cần hỏi lại user
 
