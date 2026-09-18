@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Driver proof of delivery (Mốc 3): pulling a GPS fix when the method is
+         "Photo Only". CAMERA is deliberately NOT declared - image_picker opens the
+         system camera through an intent, and declaring it would force a runtime
+         permission request for no benefit. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <application
         android:label="Cám Việt"
         android:name="${applicationName}"

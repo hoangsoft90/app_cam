@@ -38,7 +38,11 @@ dependencies:
   # Mốc 3 (driver proof of delivery). Both are wrapped behind injectable functions
   # in delivery.dart so widget tests never touch the platform channels.
   image_picker: ^1.2.3
-  geolocator: ^14.0.3
+  # 13.x on purpose: geolocator 14 pulls geolocator_linux -> package_info_plus 10 ->
+  # win32 ^6, which cannot resolve together with flutter_secure_storage 9
+  # (flutter_secure_storage_windows -> win32 ^5). Measured: `flutter pub get`
+  # failed with "version solving failed" on CI run 35314099946. 13.0.4 resolves.
+  geolocator: ^13.0.4
 
 dev_dependencies:
   flutter_test:
