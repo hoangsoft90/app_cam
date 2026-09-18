@@ -456,7 +456,11 @@ class _ConfirmDeliverySheetState extends State<ConfirmDeliverySheet> {
             onChanged: (hasInk) => setState(() {}),
           ),
           const SizedBox(height: 8),
-          Row(
+          // Wrap for the same reason as the photo row: two labelled buttons must not
+          // overflow when the sheet is narrow (or the font is scaled up).
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
             children: [
               OutlinedButton(
                 onPressed: () => setState(() {
@@ -465,7 +469,6 @@ class _ConfirmDeliverySheetState extends State<ConfirmDeliverySheet> {
                 }),
                 child: const Text('Xoá'),
               ),
-              const SizedBox(width: 12),
               FilledButton.tonal(
                 onPressed: () async {
                   final png = await _signatureKey.currentState?.toPngBase64();
@@ -492,14 +495,19 @@ class _ConfirmDeliverySheetState extends State<ConfirmDeliverySheet> {
           onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 8),
-        Row(
+        // Wrap, not Row: the button label plus a full coordinate string overflows a
+        // 608 px surface already (measured by the widget test: RenderFlex overflowed
+        // by 52 px) and real phones are narrower.
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             OutlinedButton.icon(
               onPressed: _submitting ? null : _pickPhoto,
               icon: const Icon(Icons.photo_camera),
               label: Text('Chụp ảnh (${_photos.length}/$kMaxPhotos)'),
             ),
-            const SizedBox(width: 12),
             Text(_locating
                 ? 'Đang lấy toạ độ…'
                 : _gps == null
