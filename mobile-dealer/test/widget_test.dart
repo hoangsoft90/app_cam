@@ -11,7 +11,12 @@ import 'package:mobile_dealer/restore_session.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 http.Response _json(Map<String, dynamic> body, {int status = 200, Map<String, String> headers = const {}}) =>
-    http.Response(jsonEncode(body), status, headers: headers);
+    // bytes + utf-8: a plain http.Response(string) defaults to latin-1 and
+    // THROWS on Vietnamese text ("Vũ") — measured on CI, not guessed.
+    http.Response.bytes(utf8.encode(jsonEncode(body)), status, headers: {
+      'content-type': 'application/json; charset=utf-8',
+      ...headers,
+    });
 
 /// Standard mocked ERP: login + roles (Manager + Driver) + one Feed Batch row.
 MockClient mockErp() {
@@ -288,12 +293,12 @@ void main() {
     });
 
     test('submitDoc surfaces the server validation message (server-wins)', () async {
-      final client = MockClient((req) async => http.Response(jsonEncode({
+      final client = MockClient((req) async => _json({
             'success': false,
             '_server_messages': jsonEncode([
               'Hạn mức tín dụng không đủ cho đơn này',
             ]),
-          }), 417));
+          }, status: 417));
       final erp = app.ErpClient(baseUrl: 'https://x.example', client: client);
       await expectLater(
         erp.submitDoc('Sales Order', 'SO-001'),
@@ -305,6 +310,10 @@ void main() {
 
   group('OwnerDashboardScreen (Mốc 2 — real widget, mocked ERP)', () {
     Future<http.Response> Function(http.Request) erpBackend() => (req) async {
+          // approve flow PUTs the submit — respond OK so the happy path lands.
+          if (req.method == 'PUT' && req.url.path.endsWith('/SO-001')) {
+            return _json({'data': {'name': 'SO-001', 'docstatus': 1}});
+          }
           if (req.url.path == '/api/method/frappe.client.get_list') {
             final doctype = req.url.queryParameters['doctype'];
             if (doctype == 'Customer') {

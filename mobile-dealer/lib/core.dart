@@ -118,7 +118,9 @@ class ErpClient {
         return AuthResult(ok: true, fullName: data['full_name'] as String?);
       }
       final friendly = _friendlyAuthError(res.body);
-      final tokenResult = await loginWithToken(user: user, pair: password);
+      // The owner stores the pair SPLIT across the two fields (api_key in the
+      // user field, api_secret in the password field) — recombine it here.
+      final tokenResult = await loginWithToken(user: user, pair: '$user:$password');
       if (tokenResult.ok) return tokenResult;
       return AuthResult(ok: false, error: friendly ?? tokenResult.error);
     } on FormatException {
