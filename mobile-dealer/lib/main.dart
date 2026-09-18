@@ -291,6 +291,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _role = role);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('role', role);
+    if (!mounted) return; // async gap: the widget may be gone after await
     Navigator.of(context).pop(); // close the drawer
   }
 
