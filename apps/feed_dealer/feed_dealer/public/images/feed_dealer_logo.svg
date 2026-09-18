@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2E9E57"/><stop offset="1" stop-color="#14532D"/>
+    </linearGradient>
+    <clipPath id="r"><rect width="1024" height="1024" rx="224"/></clipPath>
+  </defs>
+  <g clip-path="url(#r)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <ellipse cx="210" cy="-60" rx="660" ry="520" fill="#FFFFFF" opacity="0.14"/>
+  </g>
+  <path d="M512 318 v134" stroke="#0F5C2E" stroke-width="26" stroke-linecap="round"/>
+  <path d="M430 330 c-70 -62 -160 -40 -150 12 c8 44 92 66 150 -12z
+           M594 330 c70 -62 160 -40 150 12 c-8 44 -92 66 -150 -12z"
+        fill="#8FE388" stroke="#0F5C2E" stroke-width="10"/>
+  <path d="M478 478 c-88 76 -132 200 -132 330 c0 34 18 52 52 52 h228 c34 0 52 -18 52 -52
+           c0 -130 -44 -254 -132 -330 z"
+        fill="#F5E9C8" stroke="#8A6D3B" stroke-width="10"/>
+  <rect x="444" y="448" width="136" height="60" rx="22"
+        fill="#CAA94E" stroke="#8A6D3B" stroke-width="5"/>
+  <circle cx="598" cy="488" r="26" fill="#CAA94E" stroke="#8A6D3B" stroke-width="4"/>
+  <circle cx="420" cy="700" r="26" fill="#D9B96A" stroke="#8A6D3B" stroke-width="4"/>
+  <circle cx="512" cy="700" r="26" fill="#D9B96A" stroke="#8A6D3B" stroke-width="4"/>
+  <circle cx="604" cy="700" r="26" fill="#D9B96A" stroke="#8A6D3B" stroke-width="4"/>
+  <g stroke="#8A6D3B" stroke-width="8">
+    <path d="M300 806 l30 30 M362 806 l30 30 M424 806 l30 30 M486 806 l30 30
+             M548 806 l30 30 M610 806 l30 30 M672 806 l30 30"/>
+  </g>
+</svg>

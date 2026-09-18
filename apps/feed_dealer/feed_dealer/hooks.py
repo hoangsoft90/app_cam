@@ -1,7 +1,7 @@
 app_name = "feed_dealer"
-app_title = "Feed Dealer"
+app_title = "Cám Việt"
 app_publisher = "app_cam"
-app_description = "Feed dealer ERPNext customisation: batch-based debt tracking"
+app_description = "Feed dealer ERP: quản lý lứa nuôi & công nợ theo lứa (Cám Việt)"
 app_email = "dev@app-cam.local"
 app_license = "mit"
 
@@ -11,15 +11,14 @@ app_license = "mit"
 required_apps = ["erpnext"]
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "feed_dealer",
-# 		"logo": "/assets/feed_dealer/logo.png",
-# 		"title": "Feed Dealer",
-# 		"route": "/feed_dealer",
-# 		"has_permission": "feed_dealer.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": "feed_dealer",
+		"logo": "/assets/feed_dealer/images/feed_dealer_logo_256.png",
+		"title": "Cám Việt",
+		"route": "/app/feed-batch",
+	}
+]
 
 # Includes in <head>
 # ------------------

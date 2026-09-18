@@ -1,0 +1,69 @@
+RESULT — Icon app + đổi tên "Cám Việt" (2026-09-18 01:40–01:54 UTC)
+=====================================================================
+
+Status: DONE
+
+## Đã làm
+
+1. **P2 test accounts (chốt vòng trước)** — `feed_dealer.setup.p2_test_accounts.run`
+   EXIT 0 trên site frontend: Role `Driver` (desk_access=0) + 3 user
+   `p2-test-{owner,staff,driver}@example.com` (System/System/Website), mật khẩu
+   random in 1 lần, không nằm trong repo. Bug sửa khi test: field của Role là
+   `role_name` (không phải `role` — `role` là field bảng con Has Role).
+
+2. **Bộ icon** — `.agent/gen_icon.py` (Pillow thuần, không cần cairosvg):
+   `apps/feed_dealer/feed_dealer/public/images/`
+   - feed_dealer_logo.svg        1,618 B  (vector master)
+   - feed_dealer_logo_512.png   17,061 B  (Desk / app switcher)
+   - feed_dealer_logo_256.png   17,920 B  (Website Settings app_logo)
+   - feed_dealer_logo_48.png     2,803 B
+   - feed_dealer_favicon.ico     5,302 B  (16/32/48)
+   Thiết kế: bao cám + mầm xanh trên badge gradient xanh nông nghiệp.
+   Pixel-verified: đúng 512px, alpha góc = 0 (sửa 2 bug generator: thiếu resize
+   512, sheen vẽ tràn ra ngoài mask làm góc mờ trắng).
+
+3. **Đổi tên hiển thị → "Cám Việt"** — hooks.py: `app_title` +
+   `add_to_apps_screen[].title` = "Cám Việt". `app_name = "feed_dealer"` GIỮ
+   NGUYÊN (đổi module name = destructive). Container đã chạy bản mới (grep xác nhận).
+
+4. **Branding site** — `feed_dealer.setup.branding.run` (idempotent):
+   Website Settings favicon = /assets/feed_dealer/images/feed_dealer_favicon.ico,
+   app_logo = /assets/feed_dealer/images/feed_dealer_logo_256.png.
+   Log thật: {"changed": ["favicon -> ...", "app_logo -> ..."], "unchanged": []}
+
+## Lỗi thật gặp phải + cách xử lý
+
+- **Assets 404 qua HTTP dù app chạy**: frappe_docker backend và frontend (nginx)
+  KHÔNG dùng chung assets — symlink chỉ tồn tại bên backend; frontend có bản
+  assets riêng trong image. `bench link-assets` không tồn tại (exit 2).
+  Fix runtime: docker cp 5 file vào
+  frappe_docker-frontend-1:/home/frappe/frappe-bench/assets/feed_dealer/images/.
+  Fix bền (rebuild frontend image / volume chung) → quyết định của chủ infra.
+- Bridge MCP mất token /tmp/mcp_access_token giữa chừng → cấp lại bằng
+  `.agent/akimcp.py export` (1 lần), push lại OK (content-verified).
+- Sửa nhầm heading "Quy tắc mang đi" trong LESSONS_LEARNED khi chèn bài 57 →
+  phát hiện + khôi phục ngay trong cùng phiên.
+
+## Bằng chứng kiểm thử (HTTP thật, không phải log suông)
+
+- GET /assets/feed_dealer/images/feed_dealer_logo_256.png → 200 image/png,
+  17,671 B, PIL mở được: PNG 256×256
+- GET /assets/feed_dealer/images/feed_dealer_favicon.ico → 200 image/x-icon
+- GET /login → HTML chứa "feed_dealer_favicon" (grep count = 1)
+- branding.run EXIT 0, đổi đúng 2 field Website Settings
+
+## Bài học đã ghi
+
+- LESSONS_LEARNED.md #57 (role_name vs role), #58 (frappe_docker assets split)
+- Skill erpnext-v16-pitfalls §4: cả 2, kèm quy tắc verify bằng HTTP status +
+  content-type + PIL, không tin `ls` trong container.
+
+## Commit
+
+(dán git log -1 sau khi commit — xem working.md)
+
+## Treo / phụ thuộc bên ngoài
+
+- P1E e-invoice: BLOCKED chờ sandbox VNPT/Viettel/MISA (không đổi).
+- Tài khoản thật + chính sách mật khẩu: go-live checklist.
+- Fix bền assets frontend: cần chủ infra quyết định (rebuild image / volume).

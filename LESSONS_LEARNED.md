@@ -234,6 +234,12 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
 
 ---
 
+57. **Child-table field vs master-DocType field cùng tên — dùng sai là naming crash.** Trên `Role` master, trường định danh là `role_name`; `role` chỉ là trường của bảng con `Has Role` (trên User). Tạo `Role` bằng `{"role": "Driver"}` → frappe naming từ field rỗng → lỗi insert khó hiểu. Dấu hiệu nhận: traceback chấm ở naming validate / name rỗng.
+
+58. **frappe_docker: backend và frontend (nginx) KHÔNG dùng chung assets — file tĩnh app mới 404 dù app chạy bình thường.** `sites/assets` + symlink app chỉ tồn tại bên backend; frontend có bản assets riêng trong image. Đo 2026-09-18: 404 cả 5 icon → `docker cp` vào `frappe_docker-frontend-1:/home/frappe/frappe-bench/assets/<app>/` → 200. `bench link-assets` không tồn tại; fix bền (rebuild image/volume) là quyết định của chủ infra. Verify bằng HTTP status + content-type + mở bytes bằng PIL, không tin `ls` trong container.
+
+---
+
 ## Quy tắc mang đi (tóm tắt 1 dòng mỗi bài)
 
 1. Check trùng tên DocType với source frappe/erpnext TRƯỚC khi thêm.
@@ -389,3 +395,36 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
     KHI LỆNH XONG: log không có `=== EXIT n ===` nghĩa là lệnh vẫn đang chạy (đọc lại sau), còn
     KHÔNG TỒN TẠI file log sau khi kill wrapper local = lệnh CHƯA BAO GIỜ khởi động (RPC chết cùng
     wrapper) — chạy lại ngay, đừng tiếp tục thăm dò một đường dẫn sẽ không bao giờ có file.
+51. **Xoá hàng loạt trong MỘT transaction = xoá 0 document.** frappe giới hạn
+    `MAX_WRITES_PER_TRANSACTION = 200_000`; vượt ngưỡng ⇒ `TooManyWritesError` và **rollback TOÀN BỘ**
+    action. Đo thật: `p1g_perf.cleanup()` trên dataset 2.000 hoá đơn ghi log "removed 592 fixture(s)"
+    trong khi 25 khách vẫn còn nguyên (kiểm bằng `select count(*)`). Vá:
+    `frappe.db.auto_commit_on_many_writes = True` trước vòng lặp. **Luôn xác nhận dọn dẹp bằng COUNT
+    trên DB**, không tin dòng "removed N" của chính hàm.
+52. **`rm -f /tmp/x.log` ở sandbox KHÔNG xoá log trong container** — hai filesystem khác nhau. Vòng
+    lặp poll đọc log CŨ, thấy `=== EXIT 0 ===` và báo "DONE sau 30s" cho một lệnh CHƯA chạy (đo
+    thật: cleanup 345s bị báo xong sau 30s). Dùng TÊN LOG MỚI mỗi lần chạy, hoặc
+    `docker exec <c> rm -f /tmp/x.log` trước. Dấu hiệu log cũ: số dòng trong traceback lệch với file
+    hiện tại (`p1g_perf.py:195` trong khi bản deploy có câu đó ở `:201`) — đó là site chạy bản CŨ,
+    không phải fix sai.
+53. **`frappe.db.set_default(key, "")` để lại ROW RỖNG, không xoá.** `tabDefaultValue` giữ
+    `defvalue=''` — vô hại về logic (`get_default` trả falsy) nhưng là rác trên site thật. Xoá bằng
+    PRIMARY KEY: `mariadb -e` trên site này chạy **safe update mode**, `DELETE ... WHERE defkey LIKE`
+    bị chặn (`ERROR 1175`); phải `select name` trước rồi `delete ... where name in (...)`.
+54. **Hook `on_update` của app KHÁC có thể chặn ghi dữ liệu của mình.** `custom_app`
+    (`capture_change`) gọi `frappe.enqueue` cho MỌI on_update ⇒ build 2.000 document làm ngập queue,
+    mọi insert sau đó chết với `QueueOverloaded: Too many queued background jobs (600)`. Traceback
+    chỉ đích danh app kia ⇒ không sửa app người khác, kiểm queue
+    (`docker exec <redis-queue> redis-cli llen rq:queue:default`) và retry sau khi worker dọn.
+55. **Builder dạng APPEND phải tự dọn leftover — và đừng đọc marker TRƯỚC khi rebuild.**
+    `build_dataset` commit document ngay khi tạo, nên build chết giữa chừng để lại row mà KHÔNG có
+    marker; lần build sau APPEND lên đó ⇒ shape ghi nhận ≠ DB (đo thật: 1 Sales Order lạc làm C9
+    đỏ `expected 12, found 13`). Phải mirror guard "fixture có, marker thiếu ⇒ dọn trước" ở MỌI
+    entry point. Đồng thời: đọc marker ở đầu hàm rồi in nó ở cuối ⇒ run 2.000 giao dịch báo
+    `transactions: 100` (số của lần pilot trước); phải đọc LẠI sau khi build.
+56. **Môi trường build Flutter/Android của sandbox (đo 2026-09-17):** `/home` chỉ ~4,8 GB nên
+    Flutter SDK cache / Gradle cache / Android SDK / NDK phải nằm trên `/` (`/opt/...`), nếu không
+    sẽ chết giữa chừng với `No space left on device` (~55%); NDK cài bằng tải zip trực tiếp khi
+    `sdkmanager` fail ở bước "preparing"; Flutter 3.47 cần Android SDK 36; bỏ dòng `ndkVersion`
+    trong `build.gradle.kts` KHÔNG tránh được NDK (plugin Flutter tự áp default). Mac và sandbox
+    đều KHÔNG có Xcode ⇒ chỉ build được Android (`flutter build apk` đã chạy thật, APK 150 MB).

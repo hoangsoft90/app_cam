@@ -289,3 +289,64 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   P1D 8/8, P1F 9/9. Commits: e26a836 (docs review round), 5f05dbe (P0.5
   feature), fcdbe89 (docs result/lessons).
 - Bài học 47–50 (LESSONS_LEARNED) + 4 bullet mới trong skill §8/§4.
+
+## [2026-09-17 16:15] VIỆC A/B/C — vá tài liệu lệch nhịp, đo hiệu năng, dò môi trường P2
+
+### VIỆC A — tài liệu lệch nhịp (xong)
+- `EXIT_GATE_PHASE1.md`: P0.5 chuyển sang **DONE** (bỏ khỏi "việc còn treo", chuyển thành mục
+  "Đã đóng"); **quyết định FIFO đã chốt** ghi vào mục 3 (giữ nguyên FIFO vì là hệ quả đúng của kiến
+  trúc view-layer, `residual=0` chứng minh không mất/đúp tiền).
+- `next.md`: mục "NỢ KỸ THUẬT BẮT BUỘC" P0.5 → "✅ NỢ KỸ THUẬT ĐÃ ĐÓNG"; đóng mục chờ quyết định
+  FIFO; P0.5 trong bảng roadmap chuyển ✅.
+
+### VIỆC B — đo hiệu năng trên dữ liệu lớn (xong, có số thật)
+- Module mới `feed_dealer.setup.p1g_perf`: tái dùng **đúng** generator của P1G nhưng chạy dưới
+  prefix `P1G-PERF` + Site Default key riêng ⇒ dataset perf và dataset P1G sống độc lập.
+- `p1g_integrity.py`: `MARKER_BUILT`/`MARKER_SHAPE` thành biến module (mặc định GIỮ NGUYÊN như cũ,
+  không đổi hành vi) để dataset phụ không đè marker của P1G.
+- Dataset đo: **2.000 giao dịch** → 2.285 hoá đơn (285 credit note), 400 SO→SI, 1.425 phiếu thu
+  (400 có `references`, 1.025 trống), 163 bút toán cấn trừ. Build 865,8 s (432,9 ms/giao dịch).
+- Kết quả: (a) 1 `on_submit` hoá đơn **651 ms** (pilot 100 giao dịch: 486 ms); (b) integrity 9/9
+  **0,747 s** trên 2.285 hoá đơn (C1 diff = 0); (c) báo cáo chậm nhất `customer_credit_limit`
+  **0,160 s**/40 khách, `payment_allocation_detail` 0,029 s/3.857 dòng.
+- `EXIT_GATE_PHASE1.md` mục 6: NOT ASSESSABLE → **PASS (with caveat)** + bảng số + lý do KHÔNG tự đặt
+  ngưỡng SLA. Cổng Phase 1: 6/7 PASS (1 caveat).
+- Dọn dataset: `p1g_perf.cleanup` cần `auto_commit_on_many_writes` (frappe rollback TOÀN BỘ vì
+  >200k writes/transaction). Xác nhận bằng COUNT: perf_cust = 0, perf_keys = 0, **P1G vẫn 6 khách**.
+
+### VIỆC C — dò môi trường P2 (Flutter) TRƯỚC khi code
+- Sandbox: Flutter **3.47.2** stable; đã cài Android SDK (platform-tools, platforms;android-35/36,
+  build-tools;35/36, NDK 28.2.13676358) + Gradle home trên `/` tại `/opt/...` (vì `/home` chỉ ~4,8 GB).
+  **Bằng chứng build thật:** `flutter build apk --debug` trên project scratch → `app-debug.apk` (150 MB).
+- Mac: có Flutter (`/Users/hoang/Softwares/flutter`) + Android SDK đầy đủ, **KHÔNG có Xcode**.
+  ⇒ **Chỉ build được Android** (không iOS).
+
+### Review code (tự soát; OCR không khả dụng trong phiên)
+- Tìm ra **2 lỗi thật trong code tôi vừa viết**, đã vá + xác minh trên site:
+  1. `measure()` in `dataset` đọc TRƯỚC khi rebuild ⇒ run 2.000 giao dịch báo `transactions: 100`
+     (số của lần pilot) — sửa: đọc LẠI marker sau khi build, thêm `requested_transactions`.
+  2. `build()` gọi thẳng `build_dataset`, **bỏ qua guard "partial → clean"** của `ensure_dataset`
+     ⇒ build chết vì `QueueOverloaded` (hook `on_update` của app `custom_app`) để lại 1 SO lạc →
+     C9 đỏ (`expected 12, found 13`). Vá bằng guard mirror; **xác minh thật**: log có dòng
+     `[perf] partial PERF dataset detected (no build marker) — cleaning before rebuild` → C9 PASS →
+     `TOTAL: 9 PASS: 9 FAIL: 0`.
+- Regression sau thay đổi: **P1G INTEGRITY 9/9** + **P1G REPORTS 4/4** (site sạch).
+- Bài học 51–56 (LESSONS_LEARNED) + §3.4/3.5/3.6/§9/§10 trong skill `erpnext-v16-pitfalls`.
+
+## [2026-09-18 01:40–01:54 UTC] P2 test accounts chốt + Icon & đổi tên app "Cám Việt"
+- **P2 test accounts (chốt vòng trước):** `p2_test_accounts.run` EXIT 0 trên site — tạo Role `Driver`
+  (desk_access=0) + 3 user `p2-test-{owner,staff,driver}@example.com`, mật khẩu random in 1 lần,
+  không lưu repo. Bug đã sửa khi test: field Role là `role_name` (không phải `role`) → bài 57.
+- **Icon app (feed_dealer):** `.agent/gen_icon.py` vẽ SVG master + PNG (1024 master → 512/256/48 +
+  ICO 16/32/48) — thiết kế bao cám + mầm xanh trên gradient. Pixel-verified (đúng 512px, alpha góc
+  = 0 sau khi sửa 2 bug của generator: resize thiếu, sheen tràn mask).
+- **Đổi tên hiển thị → "Cám Việt":** `app_title` + `add_to_apps_screen.title` trong hooks.py
+  (app_name `feed_dealer` giữ nguyên — đổi module name là destructive, không làm).
+- **Site:** `branding.py` set Website Settings favicon + app_logo (idempotent, log
+  `changed=[favicon, app_logo]`). Phát hiện hạ tầng: **nginx frontend không mount assets của app
+  mới** → 404 cả 5 file dù backend OK → `docker cp` 5 file vào
+  `frappe_docker-frontend-1:/home/frappe/frappe-bench/assets/feed_dealer/images/` → **bằng chứng:
+  logo256 HTTP 200 image/png 256×256 (PIL mở được), favicon 200, HTML /login tham chiếu favicon**.
+  Fix bền (rebuild frontend image / volume dùng chung) cần quyết định của chủ infra.
+- Bài học 57 (role_name vs role), 58 (frappe_docker assets split) + skill §4 cập nhật.
+- Treo mới: không. Treo cũ: P1E BLOCKED chờ sandbox; go-live checklist tài khoản thật.
