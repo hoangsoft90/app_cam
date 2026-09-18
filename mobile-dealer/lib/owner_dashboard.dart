@@ -99,6 +99,13 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Đã duyệt $name')));
       await _refresh();
+    } on StateError {
+      // FinancialAction.guard() throws StateError (an Error, NOT an Exception —
+      // it does not match `on Exception`, so without this clause the offline
+      // tap would crash the app instead of explaining itself).
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Đang offline — không thể duyệt đơn (thao tác tài chính)')));
     } on SubmitRejected catch (e) {
       // Server refused (credit limit, permissions...) — show its message; the
       // order stays a draft. Server-wins: no local force-through.

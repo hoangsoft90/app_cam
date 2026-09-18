@@ -221,14 +221,18 @@ class ErpClient {
     int limit = 20,
     String? orderBy,
   }) async {
-    final data = await getResource(  // null values are omitted by Uri.queryParameters
-      Uri(path: '/api/method/frappe.client.get_list', queryParameters: {
-        'doctype': doctype,
-        'fields': jsonEncode(fields),
-        'limit_page_length': '$limit',
-        'filters': jsonEncode(filters),
-        'order_by': orderBy,
-      }).toString(),
+    // Built by mutation, not a conditional literal: this guarantees an absent
+    // param is truly ABSENT (never the string "null", which frappe would feed
+    // to the SQL ORDER BY clause).
+    final query = <String, String>{
+      'doctype': doctype,
+      'fields': jsonEncode(fields),
+      'limit_page_length': '$limit',
+    };
+    if (filters != null) query['filters'] = jsonEncode(filters);
+    if (orderBy != null) query['order_by'] = orderBy;
+    final data = await getResource(
+      Uri(path: '/api/method/frappe.client.get_list', queryParameters: query).toString(),
     );
     final message = data['message'];
     if (message is! List) {

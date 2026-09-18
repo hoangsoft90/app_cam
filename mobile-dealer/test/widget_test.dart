@@ -374,6 +374,30 @@ void main() {
       expect(find.text('Đã duyệt SO-001'), findsOneWidget); // success snackbar
     });
 
+    testWidgets('OFFLINE approve is refused with a message (guard throws StateError, '
+        'an Error — not an Exception — so this path needs its own clause)', (tester) async {
+      var putSeen = false;
+      final client = MockClient((req) async {
+        if (req.method == 'PUT') {
+          putSeen = true;
+          return _json({'data': {'name': 'SO-001', 'docstatus': 1}});
+        }
+        return erpBackend()(req);
+      });
+      final erp = app.ErpClient(baseUrl: 'https://x.example', client: client);
+      await tester.pumpWidget(MaterialApp(home: OwnerDashboardScreen(erp: erp)));
+      await tester.pumpAndSettle();
+
+      app.isOnline.value = false; // simulate the connectivity toggle
+      await tester.tap(find.widgetWithText(FilledButton, 'Duyệt').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Duyệt').last);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Đang offline — không thể duyệt'), findsOneWidget);
+      expect(putSeen, isFalse, reason: 'no financial request may leave the device offline');
+    });
+
     testWidgets('server rejection keeps the draft and shows the message', (tester) async {
       var submitted = false;
       final client = MockClient((req) async {
