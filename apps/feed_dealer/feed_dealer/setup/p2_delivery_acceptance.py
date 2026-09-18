@@ -286,13 +286,19 @@ def _stock_order(customer, amount, submit=True, qty=1):
 	return doc
 
 
+NEG_STOCK_MARKER = "p2_delivery_allow_negative_stock_before"
+
+
 def _allow_negative_stock(value):
-	"""Toggle Stock Settings for one check and return the previous value.
+	"""Toggle Stock Settings for one check; the PREVIOUS value is remembered in a
+	marker so the suite only ever undoes a switch it made itself.
 
 	Needed because this site runs with `allow_negative_stock = 1`, which would make
 	the "kho không đủ hàng" case pass without testing anything.
 	"""
 	previous = frappe.db.get_single_value("Stock Settings", "allow_negative_stock")
+	if not frappe.db.get_default(NEG_STOCK_MARKER):
+		frappe.db.set_default(NEG_STOCK_MARKER, str(int(previous or 0)))
 	frappe.db.set_single_value("Stock Settings", "allow_negative_stock", value)
 	# COMMIT the switch: it is test setup, and any refusal later in the suite rolls
 	# back its own work (savepoint) - but a config that only lives in an uncommitted
@@ -302,13 +308,20 @@ def _allow_negative_stock(value):
 
 
 def _restore_allow_negative_stock():
-	"""Idempotent safety net: called at the START of every run, so a crash inside a
-	check can never leave the site unable to ship stock for days."""
-	if not frappe.db.get_single_value("Stock Settings", "allow_negative_stock"):
-		frappe.db.set_single_value("Stock Settings", "allow_negative_stock", 1)
-		frappe.db.commit()
-		return "restored allow_negative_stock = 1"
-	return "allow_negative_stock already 1"
+	"""Undo the switch ONLY if this suite made one (marker present).
+
+	Called at the start of every run and in the `finally` of the shortage check: if a
+	check crashes mid-way, the next run repairs the site instead of leaving it unable
+	to ship stock. It never rewrites a value the owner set on purpose - a test has no
+	business changing site configuration it did not change itself.
+	"""
+	recorded = frappe.db.get_default(NEG_STOCK_MARKER)
+	if not recorded:
+		return "no switch to restore"
+	frappe.db.set_single_value("Stock Settings", "allow_negative_stock", int(recorded))
+	frappe.db.set_default(NEG_STOCK_MARKER, "")
+	frappe.db.commit()
+	return f"restored allow_negative_stock = {recorded}"
 
 
 # --------------------------------------------------------------------- checks
@@ -980,7 +993,7 @@ def _t16_stock_shortage(report):
 	# not on a missing valuation rate (which is why the receipt above exists).
 	short_order = _stock_order(_customer("DN-SHORT"), 100_000, submit=True, qty=available + 50)
 	stock_before = _bin_qty()
-	previous = _allow_negative_stock(0)
+	_allow_negative_stock(0)
 	try:
 
 		def confirm_without_stock():
@@ -995,10 +1008,15 @@ def _t16_stock_shortage(report):
 		def stock_untouched():
 			after = _bin_qty()
 			if after != flt(stock_before):
-				raise AssertionError(f"the refused delivery still moved stock: {stock_before} -> {after}")
+				raise AssertionError(
+					f"the refused delivery still moved stock: {stock_before} -> {after} "
+					f"(order asked for {short_order.items[0].qty})"
+				)
 			if frappe.db.exists("Delivery Note Item", {"against_sales_order": short_order.name}):
 				raise AssertionError("a Delivery Note survived the refusal")
-			return f"stock unchanged at {after}"
+			# The numbers go in the evidence line: a PASS that says "unchanged at 20"
+			# for an order of 70 is readable, one that only says "unchanged" is not.
+			return f"stock unchanged at {after}, order asked for {short_order.items[0].qty}"
 
 		report.check("T16b the refused delivery left stock untouched", stock_untouched)
 
@@ -1039,8 +1057,8 @@ def _t16_stock_shortage(report):
 
 		report.check("T16d the failed approval left no trace", still_provisional)
 	finally:
-		_allow_negative_stock(previous)
-		frappe.db.commit()
+		# Marker-based restore (never a blind "set it back to 1").
+		_restore_allow_negative_stock()
 
 
 CHECKS = (

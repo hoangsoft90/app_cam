@@ -257,8 +257,9 @@ def ensure_settings_defaults(dry_run=False):
 					f"Feed Dealer Settings.default_warehouse: {old} (công ty {owner}) "
 					f"-> {chosen} (công ty {company}) - kho cũ không thuộc công ty đang dùng"
 				)
-			else:
-				changed.append(f"Feed Dealer Settings.default_warehouse OK: {settings.default_warehouse}")
+			# No "OK" line: this list is the list of things CHANGED. A caller that
+			# prints it as a change report must not see a row for work that never
+			# happened (the drift check still ran - silence means "already correct").
 
 	if changed and not dry_run:
 		settings.flags.ignore_permissions = True

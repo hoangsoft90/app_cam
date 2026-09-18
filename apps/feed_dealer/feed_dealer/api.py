@@ -262,10 +262,13 @@ def confirm_delivery(payload=None):
 	# test had just set, which made a later "kho không đủ hàng" check pass while
 	# pretending to test the guard.
 	frappe.db.savepoint("feed_dealer_confirm_delivery")
-	doc.flags.ignore_validate = True
-	doc.insert()
-
 	try:
+		# `insert()` is INSIDE the try on purpose: a failure here (duplicate
+		# idempotency_key racing another phone, a rule the controller checks before
+		# validation) must land on the savepoint too - otherwise a half-written
+		# document can survive in the caller's transaction.
+		doc.flags.ignore_validate = True
+		doc.insert()
 		signature = _normalise_image(data.get("signature_png"), _("Chữ ký"))
 		if signature:
 			doc.signature_image = _attach(doc, f"{doc.name}-signature.png", signature)
