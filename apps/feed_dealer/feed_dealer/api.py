@@ -195,6 +195,7 @@ def _summary(doc):
 		"status": doc.status,
 		"pending_owner_approval": int(doc.pending_owner_approval or 0),
 		"driver": doc.driver,
+		"delivery_note": doc.delivery_note,
 	}
 
 
@@ -255,6 +256,12 @@ def confirm_delivery(payload=None):
 	# half-built record refused the photo path before its photo existed.
 	# `customer`, `driver`, `status`, `pending_owner_approval` are computed in the
 	# controller's validate() - the payload cannot set them.
+	# SAVEPOINT, not a full rollback: a refusal must undo OUR work only. A bare
+	# `frappe.db.rollback()` also discards anything the caller did earlier in the
+	# same transaction - measured 2026-09-18: it silently reverted a config value a
+	# test had just set, which made a later "kho không đủ hàng" check pass while
+	# pretending to test the guard.
+	frappe.db.savepoint("feed_dealer_confirm_delivery")
 	doc.flags.ignore_validate = True
 	doc.insert()
 
@@ -282,6 +289,13 @@ def confirm_delivery(payload=None):
 		# WE just attached to the record this same caller created.
 		doc.flags.ignore_validate = False
 		doc.save(ignore_permissions=True)
+
+		# Stock document for a FINAL delivery, created inside the same transaction:
+		# if the warehouse cannot cover the order this raises, the block below
+		# removes the proof files and rolls back, so the driver is told the truth
+		# (nothing is left claiming "giao thành công" without a Delivery Note).
+		# Signature/Photo Only are provisional and wait for the owner's approval.
+		doc.ensure_delivery_note()
 	except Exception:
 		for file_name in frappe.get_all(
 			"File",
@@ -292,7 +306,7 @@ def confirm_delivery(payload=None):
 				frappe.delete_doc("File", file_name, force=True, ignore_permissions=True)
 			except Exception:  # noqa: BLE001 - cleanup is best effort; the rollback is the guarantee
 				pass
-		frappe.db.rollback()
+		frappe.db.rollback(save_point="feed_dealer_confirm_delivery")
 		raise
 
 	out = _summary(doc)

@@ -152,6 +152,17 @@
    "idx": 15
   },
   {
+   "fieldname": "delivery_note",
+   "fieldtype": "Link",
+   "label": "Phiếu xuất kho",
+   "options": "Delivery Note",
+   "description": "Phiếu xuất kho do hệ thống tự tạo khi xác nhận đã giao (chỉ với OTP/Chữ ký, hoặc sau khi chủ đại lý duyệt bản tạm).",
+   "read_only": 1,
+   "no_copy": 1,
+   "in_list_view": 1,
+   "idx": 16
+  },
+  {
    "fieldname": "approved_by",
    "fieldtype": "Link",
    "label": "Người duyệt",

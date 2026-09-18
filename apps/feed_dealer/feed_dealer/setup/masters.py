@@ -227,7 +227,7 @@ def ensure_settings_defaults(dry_run=False):
 			settings.default_company = company
 		changed.append(f"Feed Dealer Settings.default_company = {company}")
 
-	if not settings.default_warehouse and company:
+	if company:
 		warehouses = frappe.get_all(
 			"Warehouse",
 			filters={"company": company, "is_group": 0, "disabled": 0},
@@ -237,10 +237,28 @@ def ensure_settings_defaults(dry_run=False):
 		# Prefer a feed warehouse when the company has one, else the first.
 		feed = [w for w in warehouses if "cám" in w.lower() or "cam" in w.lower()]
 		chosen = (feed or warehouses or [None])[0]
-		if chosen:
+
+		if not settings.default_warehouse and chosen:
 			if not dry_run:
 				settings.default_warehouse = chosen
 			changed.append(f"Feed Dealer Settings.default_warehouse = {chosen}")
+
+		# DRIFT CHECK (measured 2026-09-18): the field is filled ONCE, so a value
+		# stamped while another company was the default - or set by hand - is never
+		# re-validated. A warehouse of the WRONG company does not fail here; it fails
+		# much later, as `Warehouse Stores - S does not belong to company Minh Phát
+		# Cám & VLXD` on the first Delivery Note, i.e. nothing can ship at all.
+		elif settings.default_warehouse and chosen and not dry_run:
+			owner = frappe.db.get_value("Warehouse", settings.default_warehouse, "company")
+			if owner != company:
+				old = settings.default_warehouse
+				settings.default_warehouse = chosen
+				changed.append(
+					f"Feed Dealer Settings.default_warehouse: {old} (công ty {owner}) "
+					f"-> {chosen} (công ty {company}) - kho cũ không thuộc công ty đang dùng"
+				)
+			else:
+				changed.append(f"Feed Dealer Settings.default_warehouse OK: {settings.default_warehouse}")
 
 	if changed and not dry_run:
 		settings.flags.ignore_permissions = True

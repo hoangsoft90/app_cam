@@ -35,6 +35,11 @@ here instead of on a driver's phone.
       under the per-image cap but over the total cap
   T14 after a rejection is re-filed, `driver_deliveries` reports the LIVE
       confirmation instead of the dead rejected one
+  T15 Delivery Note (owner decision 2026-09-18): a FINAL confirmation submits the
+      DN inside its own transaction (T15a), a provisional one gets none until the
+      owner approves (T15b), a rejection never creates one (T15c), and when the
+      warehouse cannot cover the order the whole action is refused - no record is
+      left claiming "giao thành công" with no stock document (T15d/T15e)
 
 Fixtures: customer + submitted Sales Order under the P2-DELIVERY-ACCEPT prefix,
 plus two acceptance-only accounts (Driver, Manager). `run()`/`debug()` clean up
@@ -46,6 +51,7 @@ import json
 import traceback
 
 import frappe
+from frappe.utils import add_days, flt, nowdate
 
 from feed_dealer.api import (
 	approve_delivery,
@@ -55,6 +61,7 @@ from feed_dealer.api import (
 	reject_delivery,
 )
 from feed_dealer.setup.p1b_acceptance import Report
+from feed_dealer.setup.p1a_acceptance import _company
 from feed_dealer.setup.p1c_acceptance import _order, _set_limit
 
 PREFIX = "P2-DELIVERY-ACCEPT"
@@ -165,6 +172,143 @@ def _reject(fn, expect, order=None):
 
 def _key(tag):
 	return f"{PREFIX}-{tag}-{frappe.generate_hash(length=8)}"
+
+
+STOCK_ITEM = f"{PREFIX} Stock Item"
+
+
+def _default_warehouse():
+	return frappe.db.get_single_value("Feed Dealer Settings", "default_warehouse")
+
+
+def _stock_item():
+	"""A STOCK item on purpose: the non-stock fixture item never moves stock, so a
+	Delivery Note for it would pass every test while proving nothing."""
+	if not frappe.db.exists("Item", STOCK_ITEM):
+		group = frappe.db.get_value("Item Group", "Cám lợn") or frappe.db.get_value(
+			"Item Group", "All Item Groups"
+		)
+		frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": STOCK_ITEM,
+				"item_name": STOCK_ITEM,
+				"item_group": group,
+				"stock_uom": "Kg",
+				"is_stock_item": 1,
+				"include_item_in_manufacturing": 0,
+			}
+		).insert(ignore_permissions=True)
+	frappe.db.commit()
+	return STOCK_ITEM
+
+
+STOCK_RECEIPT_QTY = 10
+STOCK_RATE = 5_000
+
+
+def _bin_qty():
+	return (
+		frappe.db.get_value(
+			"Bin", {"item_code": STOCK_ITEM, "warehouse": _default_warehouse()}, "actual_qty"
+		)
+		or 0
+	)
+
+
+def _ensure_stock(qty=STOCK_RECEIPT_QTY):
+	"""Put real stock in the warehouse, ONCE.
+
+	Measured 2026-09-18: a Delivery Note for an item that never came in is refused -
+	"Valuation Rate for the Item ..., is required to do accounting entries". Stock has
+	to exist before it can be shipped, so the fixture creates it (Material Receipt at
+	a stated rate) instead of pretending.
+	"""
+	item = _stock_item()
+	# TOP UP to a known quantity, not just "create stock when zero": earlier runs ran
+	# with `allow_negative_stock = 1`, so the bin can be NEGATIVE and any shortage math
+	# built on it becomes meaningless (measured: a bin of -40 turned a 50-unit shortage
+	# into an order of 10 that the guard then judged differently than expected).
+	short = flt(qty) - flt(_bin_qty())
+	if short <= 0:
+		return _bin_qty()
+	entry = frappe.get_doc(
+		{
+			"doctype": "Stock Entry",
+			"stock_entry_type": "Material Receipt",
+			"company": _company(),
+			"to_warehouse": _default_warehouse(),
+			"items": [
+				{
+					"item_code": item,
+					"qty": short,
+					"t_warehouse": _default_warehouse(),
+					"basic_rate": STOCK_RATE,
+				}
+			],
+		}
+	)
+	entry.insert(ignore_permissions=True)
+	entry.submit()
+	frappe.db.commit()
+	return _bin_qty()
+
+
+def _stock_order(customer, amount, submit=True, qty=1):
+	"""Sales Order on the stock item (qty 1 unless a shortage is being set up)."""
+	item = _stock_item()
+	doc = frappe.get_doc(
+		{
+			"doctype": "Sales Order",
+			"company": _company(),
+			"customer": customer,
+			"currency": "VND",
+			"transaction_date": nowdate(),
+			"delivery_date": add_days(nowdate(), 7),
+			"items": [
+				{
+					"item_code": item,
+					"qty": qty,
+					"rate": amount,
+					"delivery_date": add_days(nowdate(), 7),
+					# Mandatory for a STOCK item (ERPNext: "Delivery warehouse required for
+					# stock item ..."); in production this comes from Item Default, here it
+					# is explicit so the fixture proves the DN path and not the item setup.
+					"warehouse": _default_warehouse(),
+				}
+			],
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	if submit:
+		doc.submit()
+	frappe.db.commit()
+	return doc
+
+
+def _allow_negative_stock(value):
+	"""Toggle Stock Settings for one check and return the previous value.
+
+	Needed because this site runs with `allow_negative_stock = 1`, which would make
+	the "kho không đủ hàng" case pass without testing anything.
+	"""
+	previous = frappe.db.get_single_value("Stock Settings", "allow_negative_stock")
+	frappe.db.set_single_value("Stock Settings", "allow_negative_stock", value)
+	# COMMIT the switch: it is test setup, and any refusal later in the suite rolls
+	# back its own work (savepoint) - but a config that only lives in an uncommitted
+	# transaction is a trap for the next check.
+	frappe.db.commit()
+	return previous
+
+
+def _restore_allow_negative_stock():
+	"""Idempotent safety net: called at the START of every run, so a crash inside a
+	check can never leave the site unable to ship stock for days."""
+	if not frappe.db.get_single_value("Stock Settings", "allow_negative_stock"):
+		frappe.db.set_single_value("Stock Settings", "allow_negative_stock", 1)
+		frappe.db.commit()
+		return "restored allow_negative_stock = 1"
+	return "allow_negative_stock already 1"
 
 
 # --------------------------------------------------------------------- checks
@@ -709,6 +853,196 @@ def _t14_driver_list_prefers_live(report):
 	report.check("T14 driver list shows the re-filed confirmation, not the rejected one", check)
 
 
+def _t15_delivery_note(report):
+	"""The stock document: created by the server, never by the app."""
+	_ensure_stock()
+	stock_before = _bin_qty()
+	otp_order = _stock_order(_customer("DN-OTP"), 100_000, submit=True)
+	with _As(DRIVER_EMAIL):
+		final = confirm_delivery(_payload(otp_order, _key("dnotp"), "OTP", otp_code="246810"))
+
+	def dn_on_final():
+		doc = frappe.get_doc("Delivery Confirmation", final["name"])
+		if not doc.delivery_note:
+			raise AssertionError("a final confirmation stored no Delivery Note")
+		dn = frappe.get_doc("Delivery Note", doc.delivery_note)
+		if dn.docstatus != 1:
+			raise AssertionError(f"the Delivery Note is not submitted: docstatus={dn.docstatus}")
+		# `Delivery Note` has NO `sales_order` field (that is Sales Invoice): the link
+		# lives on the item row as `against_sales_order` - verified on the site.
+		if dn.items[0].against_sales_order != otp_order.name:
+			raise AssertionError(
+				f"linked to the wrong order: {dn.items[0].against_sales_order} != {otp_order.name}"
+			)
+		warehouse = _default_warehouse()
+		if warehouse and dn.items[0].warehouse != warehouse:
+			raise AssertionError(
+				f"warehouse must come from Feed Dealer Settings: {dn.items[0].warehouse} != {warehouse}"
+			)
+		# And it must belong to the order's COMPANY: a warehouse from another company
+		# makes the Delivery Note impossible ("does not belong to company ..."), which
+		# is exactly how the mis-pointed default_warehouse showed up on 2026-09-18.
+		if not dn.items[0].warehouse:
+			raise AssertionError("the Delivery Note line has no warehouse")
+		warehouse_company = frappe.db.get_value("Warehouse", dn.items[0].warehouse, "company")
+		if warehouse_company != otp_order.company:
+			raise AssertionError(
+				f"warehouse {dn.items[0].warehouse} belongs to {warehouse_company}, not to {otp_order.company}"
+			)
+		# The return value the app reads must carry it too (Mốc 4 offline queue relies
+		# on the replay telling the app what was actually created).
+		if final.get("delivery_note") != doc.delivery_note:
+			raise AssertionError("the API response omits the Delivery Note")
+		# The stock really moved (not just a document): qty 1 left the warehouse.
+		stock_after = _bin_qty()
+		if stock_after != flt(stock_before) - 1:
+			raise AssertionError(f"stock did not move: {stock_before} -> {stock_after}")
+		return f"{dn.name} submitted, {stock_before} -> {stock_after} @ {dn.items[0].warehouse}"
+
+	report.check("T15a FINAL (OTP) -> Delivery Note submitted with the proof", dn_on_final)
+
+	provisional_order = _stock_order(_customer("DN-PHOTO"), 100_000, submit=True)
+	with _As(DRIVER_EMAIL):
+		provisional = confirm_delivery(
+			_payload(
+				provisional_order,
+				_key("dnphoto"),
+				"Photo Only — Needs Approval",
+				no_otp_reason="khách không nghe máy",
+				gps_latitude=10.5,
+				gps_longitude=106.5,
+				photos=[PNG_1PX],
+			)
+		)
+
+	def no_dn_while_provisional():
+		doc = frappe.get_doc("Delivery Confirmation", provisional["name"])
+		if doc.delivery_note:
+			raise AssertionError("stock left the warehouse before the owner approved")
+		leaked = frappe.db.exists("Delivery Note", {"sales_order": provisional_order.name})
+		if leaked:
+			raise AssertionError(f"a Delivery Note exists already: {leaked}")
+		return f"{doc.name} provisional, no Delivery Note"
+
+	report.check("T15b provisional -> no Delivery Note yet", no_dn_while_provisional)
+
+	with _As(MANAGER_EMAIL):
+		approve_delivery(provisional["name"])
+
+	def dn_after_approval():
+		doc = frappe.get_doc("Delivery Confirmation", provisional["name"])
+		if not doc.delivery_note:
+			raise AssertionError("approving created no Delivery Note")
+		dn = frappe.get_doc("Delivery Note", doc.delivery_note)
+		if dn.docstatus != 1 or dn.items[0].against_sales_order != provisional_order.name:
+			raise AssertionError(
+				f"bad DN after approval: {dn.name} docstatus={dn.docstatus} "
+				f"for {dn.items[0].against_sales_order}"
+			)
+		return f"{doc.name} -> {dn.name} submitted"
+
+	report.check("T15c approving a provisional delivery submits the Delivery Note", dn_after_approval)
+
+	reject_order = _stock_order(_customer("DN-REJECT"), 100_000, submit=True)
+	with _As(DRIVER_EMAIL):
+		to_reject = confirm_delivery(
+			_payload(
+				reject_order,
+				_key("dnreject"),
+				"Photo Only — Needs Approval",
+				no_otp_reason="khách không nghe máy",
+				gps_latitude=10.6,
+				gps_longitude=106.6,
+				photos=[PNG_1PX],
+			)
+		)
+	with _As(MANAGER_EMAIL):
+		reject_delivery(to_reject["name"], reason="ảnh không thấy hàng")
+
+	def rejected_never_ships():
+		if frappe.db.exists("Delivery Note Item", {"against_sales_order": reject_order.name}):
+			raise AssertionError("a rejected delivery still produced a Delivery Note")
+		return "no stock document for the rejected delivery"
+
+	report.check("T15d reject -> no Delivery Note", rejected_never_ships)
+
+
+
+def _t16_stock_shortage(report):
+	"""No "giao thành công" without a stock document. Both entry points.
+
+	Stock starts empty for the fixture item, and allow_negative_stock is switched
+	OFF for the duration of this check (this site runs with it ON, which would let
+	everything through and prove nothing).
+	"""
+	available = _ensure_stock()
+	# Ask for much more than the warehouse holds: the file must fail on the SHORTAGE,
+	# not on a missing valuation rate (which is why the receipt above exists).
+	short_order = _stock_order(_customer("DN-SHORT"), 100_000, submit=True, qty=available + 50)
+	stock_before = _bin_qty()
+	previous = _allow_negative_stock(0)
+	try:
+
+		def confirm_without_stock():
+			with _As(DRIVER_EMAIL):
+				confirm_delivery(_payload(short_order, _key("dnshort"), "OTP", otp_code="135790"))
+
+		report.check(
+			"T16a stock shortage -> confirmation refused, nothing persisted",
+			lambda: _reject(confirm_without_stock, "Không xuất được kho", short_order),
+		)
+
+		def stock_untouched():
+			after = _bin_qty()
+			if after != flt(stock_before):
+				raise AssertionError(f"the refused delivery still moved stock: {stock_before} -> {after}")
+			if frappe.db.exists("Delivery Note Item", {"against_sales_order": short_order.name}):
+				raise AssertionError("a Delivery Note survived the refusal")
+			return f"stock unchanged at {after}"
+
+		report.check("T16b the refused delivery left stock untouched", stock_untouched)
+
+		# Same guarantee on the owner's path: the approval must NOT land while the
+		# stock document cannot be created (the driver's claim stays provisional).
+		provisional_order = _stock_order(
+			_customer("DN-SHORT-OWNER"), 100_000, submit=True, qty=available + 50
+		)
+		with _As(DRIVER_EMAIL):
+			pending = confirm_delivery(
+				_payload(
+					provisional_order,
+					_key("dnshortowner"),
+					"Photo Only — Needs Approval",
+					no_otp_reason="khách không nghe máy",
+					gps_latitude=10.7,
+					gps_longitude=106.7,
+					photos=[PNG_1PX],
+				)
+			)
+
+		def approve_without_stock():
+			with _As(MANAGER_EMAIL):
+				approve_delivery(pending["name"])
+
+		report.check(
+			"T16c stock shortage blocks the approval, record stays provisional",
+			lambda: _reject(approve_without_stock, "Không xuất được kho"),
+		)
+
+		def still_provisional():
+			doc = frappe.get_doc("Delivery Confirmation", pending["name"])
+			if doc.status != "Giao thành công tạm" or not doc.pending_owner_approval:
+				raise AssertionError(f"the failed approval leaked: {doc.status} pending={doc.pending_owner_approval}")
+			if doc.approved_at or doc.delivery_note:
+				raise AssertionError("the record claims an approval it never got")
+			return f"{doc.name} still {doc.status}, no Delivery Note"
+
+		report.check("T16d the failed approval left no trace", still_provisional)
+	finally:
+		_allow_negative_stock(previous)
+		frappe.db.commit()
+
+
 CHECKS = (
 	("T1", _t1_otp),
 	("T2", _t2_client_cannot_force),
@@ -724,12 +1058,15 @@ CHECKS = (
 	("T12", _t12_malformed_photos),
 	("T13", _t13_size_caps),
 	("T14", _t14_driver_list_prefers_live),
+	("T15", _t15_delivery_note),
+	("T16", _t16_stock_shortage),
 )
 
 
 # ---------------------------------------------------------------------- runner
 def run():
 	_users()
+	_restore_allow_negative_stock()
 	cleanup()
 	report = Report()
 	for _name, check in CHECKS:
@@ -764,12 +1101,31 @@ def debug():
 
 
 def cleanup():
-	"""Remove P2 delivery fixtures: confirmations (+ files), orders, customers."""
+	"""Remove P2 delivery fixtures: confirmations (+ files), DNs, orders, customers.
+
+	A submitted Delivery Note is CANCELLED before deletion, never erased quietly:
+	cancelling reverses the stock ledger entry, so the warehouse ends where it
+	started while the audit trail stays (that is what a real site does too).
+	"""
 	removed = []
 	customers = _customers()
 	orders = frappe.get_all(
 		"Sales Order", filters={"customer": ["in", customers or [""]]}, pluck="name"
 	)
+	for dn_row in frappe.get_all(
+		"Delivery Note",
+		filters={"customer": ["in", customers or [""]]},
+		fields=["name", "docstatus"],
+	):
+		try:
+			dn = frappe.get_doc("Delivery Note", dn_row.name)
+			if dn.docstatus == 1:
+				dn.cancel()
+			frappe.delete_doc("Delivery Note", dn_row.name, force=True, ignore_permissions=True)
+			removed.append(f"Delivery Note {dn_row.name}")
+		except Exception as exc:  # noqa: BLE001
+			removed.append(f"Delivery Note {dn_row.name} FAILED: {exc}")
+
 	confirmations = frappe.get_all(
 		"Delivery Confirmation", filters={"sales_order": ["in", orders or [""]]}, pluck="name"
 	)

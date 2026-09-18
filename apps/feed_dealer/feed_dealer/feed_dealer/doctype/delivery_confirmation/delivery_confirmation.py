@@ -24,6 +24,11 @@ Server-authoritative rules (the client is NOT trusted for these):
   optional-but-recorded for OTP/Signature so a device without a location fix
   cannot stop a normal delivery.
 * One live confirmation per Sales Order (a rejected one may be re-done).
+* The Delivery Note is created + submitted by THIS record, never by the app:
+  immediately when the driver's confirmation is FINAL (OTP/Signature), or when
+  the owner approves a provisional (Photo Only) one. Rejecting never creates
+  stock movement. If the warehouse cannot cover the order the whole action
+  fails - a record must never claim "giao thành công" with no stock document.
 
 Known limits (documented, not hidden): nothing attests that the GPS coordinates
 or the photo timestamp are genuine - the phone is the only witness. OTP delivery
@@ -34,6 +39,10 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
+
+# `make_delivery_note` lives with the Sales Order controller in ERPNext v16; the
+# mapping (pending qty per line, taxes, warehouse) is core behaviour we must not
+# re-implement.
 
 METHOD_OTP = "OTP"
 METHOD_SIGNATURE = "Signature"
@@ -151,11 +160,93 @@ class DeliveryConfirmation(Document):
 				)
 			)
 
+	# ------------------------------------------------------------- stock side
+	def build_delivery_note(self):
+		"""Create + SUBMIT the Delivery Note for this order and return its name.
+
+		Uses ERPNext's own `make_delivery_note` so pending quantities, taxes and the
+		SO link come from core (never re-mapped by hand), then stamps the pilot's
+		`default_warehouse` from Feed Dealer Settings - decided in P0, so no new
+		warehouse is invented here.
+
+		Raises when the warehouse cannot cover the order: the caller's transaction
+		must fail as a whole rather than leave a "delivered" claim with no stock
+		document behind it.
+		"""
+		from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+
+		# The mapping needs a caller that may READ the order and CREATE a stock
+		# document. A Driver may do NEITHER - measured on the site 2026-09-18: the
+		# Driver role is All/Driver/Guest only, `has_permission("Delivery Note",
+		# "create")` is False, and `frappe.flags.ignore_permissions` is NOT consulted
+		# by has_permission, so flags cannot help. Filing the stock document is the
+		# SERVER's job, so the build runs as the server; the record keeps the driver
+		# as `owner` for audit.
+		filed_by = frappe.session.user
+		frappe.set_user("Administrator")
+		try:
+			dn = make_delivery_note(self.sales_order)
+		except Exception as exc:  # noqa: BLE001 - surface the core reason in Vietnamese
+			frappe.throw(
+				_("Không tạo được phiếu xuất kho cho đơn {0}: {1}").format(self.sales_order, exc)
+			)
+		finally:
+			frappe.set_user(filed_by)
+		# Audit trail: the person who filed the delivery, not the server account.
+		dn.owner = filed_by
+		dn.modified_by = filed_by
+
+		warehouse = frappe.db.get_single_value("Feed Dealer Settings", "default_warehouse")
+		if warehouse:
+			# `set_warehouse` is the doctype's own field: it re-stamps every line that
+			# has no warehouse of its own, which is what a SO line with no Item Default
+			# looks like. Without it ERPNext refuses the stock lines on validate.
+			dn.set_warehouse = warehouse
+		dn.flags.ignore_permissions = True
+		frappe.db.savepoint("feed_dealer_delivery_note")
+		try:
+			dn.insert()
+			dn.submit()
+		except Exception as exc:  # noqa: BLE001
+			# A refused submit can already have written stock ledger entries before it
+			# hit the guard - measured: the bin moved by the refused quantity when the
+			# CALLER caught the error, i.e. outside frappe's request-level rollback. A
+			# savepoint makes a refusal leave nothing behind, whatever the caller does
+			# with the exception.
+			frappe.db.rollback(save_point="feed_dealer_delivery_note")
+			frappe.throw(
+				_("Không xuất được kho cho đơn {0} (kiểm tra tồn kho): {1}").format(
+					self.sales_order, exc
+				)
+			)
+		return dn.name
+
+	def ensure_delivery_note(self):
+		"""Idempotent: return the linked Delivery Note, creating it for FINAL records.
+
+		Returns None for a provisional or rejected record (nothing may leave the
+		warehouse before the owner accepts a provisional delivery).
+		"""
+		if self.delivery_note:
+			return self.delivery_note
+		if self.status != STATUS_DONE:
+			return None
+		name = self.build_delivery_note()
+		# db_set, not save(): re-running validate() here is exactly what used to
+		# silently undo an owner decision (see _compute_state's approved_at guard).
+		self.db_set("delivery_note", name)
+		self.delivery_note = name
+		return name
+
 	# --------------------------------------------------------- owner decision
 	def apply_owner_decision(self, approve, reason=None, user=None):
 		"""Called by the whitelisted API after the caller's role was checked."""
 		user = user or frappe.session.user
 		if approve:
+			# Stock document FIRST: if the warehouse cannot cover it, this raises and
+			# the approval never lands, so the driver's record stays provisional
+			# instead of claiming a delivery we could not actually ship.
+			self.delivery_note = self.delivery_note or self.build_delivery_note()
 			self.pending_owner_approval = 0
 			self.status = STATUS_DONE
 			self.reject_reason = None
