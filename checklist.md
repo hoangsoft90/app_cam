@@ -128,7 +128,13 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
       `35306182930`: 35 test PASS + artifact `camviet-debug-apk` 79 MB). Duyệt SO qua REST PUT
       `docstatus=1` → hook hạn mức phía server vẫn chạy, bị từ chối thì hiện message server
       (server-wins, không force). Chờ chủ dự án review trước Mốc 3.
-- [ ] Mốc 3: Driver flow (giao hàng, OTP/chữ ký/ảnh/GPS)
+- [~] Mốc 3: Driver flow (giao hàng, OTP/chữ ký/ảnh/GPS)
+      - [x] **Backend DONE** 2026-09-18: DocType `Delivery Confirmation` + child `Delivery Proof Photo`
+            + `feed_dealer/api.py` (confirm_delivery idempotent, approve/reject chỉ Manager) —
+            `p2_delivery_acceptance` **15/15 PASS** trên site thật (T1–T11)
+      - [ ] Màn hình Driver trong app (danh sách giao + OTP/chữ ký/ảnh/GPS + nén ảnh) + widget test 3 nhánh
+      - [?] Cần chủ dự án quyết: gửi OTP qua SMS (chưa có provider) và có submit Delivery Note khi
+            xác nhận hay không (app chưa có pipeline DN)
 - [ ] Mốc 4: Offline queue + idempotency_key cho create được phép offline
 - [ ] Mốc 5: Guard cứng — nút thu tiền/đổi hạn mức KHÔNG THẤY (không phải disable mờ) khi offline
 - [ ] Mốc 6: test máy thật/emulator + sóng yếu + APK debug cuối cùng
@@ -140,13 +146,11 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
 - [?] Commit ban đầu có thực hiện không? (acceptance #6 của prompt P0) → **đã xong, 4 commit**
       (`eb75222`, `0355d6b`, `0e89ce7`, `7c62129`), các file md root + result/handoff **có** nằm trong
       git. Acceptance #6 của prompt P0 coi như đóng.
-- [?] Hành vi sai khác giữa prompt P1C (acceptance #1: "3 draft SO 20tr") và `plan_final_v2.2_mustfix.md`
-      MUST-3: bản v2.2 (mới hơn, ghi MUST) đếm **cả draft khi tạo**, nên đơn nháp thứ 3 bị chặn ngay lúc
-      tạo chứ không phải lúc submit. Tôi làm theo v2.2 và test **cả hai** hành vi (P1C T1/T2/T3).
-      Nếu user muốn đúng theo prompt cũ thì phải bỏ số hạng draft khi tạo (mở lại bypass 10 đơn nháp).
-- [?] **Warehouse "Main"**: prompt yêu cầu tạo, nhưng site thật đã có warehouse. Seeder đang CHỌN
-      default_warehouse từ warehouse có sẵn (ưu tiên tên có "cám/cam") chứ KHÔNG tạo "Warehouse Main"
-      mới. Giữ nguyên cách này, hay cần tạo warehouse riêng cho dự án?
+- [x] Hành vi hạn mức (MUST-3) → **đã quyết ở review round trước: giữ nguyên v2.2 MUST-3** (chặn
+      đơn nháp vượt hạn mức NGAY LÚC TẠO). Đóng câu hỏi, không mở lại.
+- [x] **Warehouse** → **đã quyết ở review round trước: giữ nguyên cách tự chọn warehouse có sẵn**
+      (seeder chọn `default_warehouse` từ warehouse hiện có, ưu tiên tên có "cám/cam"), KHÔNG tạo
+      "Warehouse Main" mới. Đóng câu hỏi, không mở lại.
 - [x] `alpine:3.19` → **user quyết: không đụng** (có trước dự án, không liên quan) — đóng câu hỏi này.
 - [?] P1E cần: provider (VNPT/Viettel/MISA), credential sandbox, mã số thuế công ty, và quy ước
       NĐ 123 khi SI huỷ/điều chỉnh (Cancel vs Adjust vs Replace khi nào) — xem

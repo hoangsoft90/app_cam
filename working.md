@@ -405,6 +405,37 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 - **Docs:** checklist C2 Mốc 1 → `[x]` kèm hash; next.md thêm mục P2 (repo link + chính sách
   build-qua-GH-Actions + trạng thái Mốc 1).
 
+## [2026-09-18 ~05:20 UTC] Mốc 3 (phần backend) — DONE: Delivery Confirmation 15/15 PASS
+- **Schema MỚI (P1F không có field proof-of-delivery nào — đã kiểm tra, không giả định):** DocType
+  `Delivery Confirmation` (20 field) + child `Delivery Proof Photo`, theo đúng bộ field addendum
+  B9: `confirmation_method` (OTP / Signature / Photo Only — Needs Approval), `otp_code`,
+  `otp_verified_at`, `signature_image`, `gps_latitude/longitude/timestamp`, `no_otp_reason`,
+  `pending_owner_approval`, `status`, `approved_by/at`, `reject_reason`, `idempotency_key` (unique),
+  `proof_photos`. Quyết định: **DocType riêng thay vì custom field trên Delivery Note** (proof-of-delivery
+  là bản ghi nghiệp vụ có vòng đời/audit riêng; app chưa có pipeline Delivery Note nào).
+- **Luật server-authoritative:** client GỬI `customer`/`driver`/`status`/`pending_owner_approval` đều bị
+  ghi đè (customer lấy từ SO, driver = user phiên, 2 field kia do `confirmation_method` suy ra).
+  - OTP → final "Giao thành công"; Signature/Photo → "Giao thành công tạm" + pending=1 (B9: đại lý duyệt sau)
+  - Photo Only: BẮT BUỘC `no_otp_reason` + ≥ 1 ảnh + GPS; GPS chỉ bắt buộc ở nhánh Photo
+    (không chặn tài xế giao hàng vì lỗi định vị máy)
+  - 1 xác nhận "còn sống" cho mỗi Sales Order; SO phải đã submit
+  - `idempotency_key` unique + API trả bản ghi cũ khi trùng khoá (nền cho Mốc 4)
+- **API mobile (`feed_dealer/api.py`):** `confirm_delivery` (idempotent, nhận ảnh base64),
+  `driver_deliveries`, `pending_delivery_approvals`, `approve_delivery`/`reject_delivery`
+  (chỉ Manager, reject phải có lý do). Whitelist tự kiểm quyền (bài #23).
+- **Bằng chứng:** `p2_delivery_acceptance.run` → **`TOTAL: 15 PASS: 15 FAIL: 0`** (T1–T11) trên site
+  thật, chạy bằng đúng user Driver/Manager thật của hệ thống.
+- **9 lỗi tìm được trong vòng này (4 do review tay + 5 do chạy thật)** → bài học #66–#72.
+  Đáng chú ý nhất: `flags.ignore_validate` dính vào instance làm lần save cuối **cũng** bỏ hết luật
+  (acceptance đỏ 9/15 toàn dạng "nothing was refused").
+- **NỢ/OPEN cần chủ dự án quyết (không tự chế):**
+  1. **Gửi OTP (SMS)** — hiện app ghi `otp_code` khách đọc; chưa có provider SMS → giống P1E (BLOCKED).
+  2. **Submit Delivery Note khi xác nhận** — acceptance #3 của prompt P2 nói "OTP → DN submitted",
+     nhưng app chưa có pipeline DN nào (tạo DN = xuất kho thật, cần quyết định warehouse/stock).
+  3. Xác thực GPS/ảnh (chống ảnh cũ) — hiện máy là nhân chứng duy nhất, đã ghi rõ trong docstring.
+- **Phần còn lại của Mốc 3:** màn hình Driver trong app Flutter (danh sách giao + sheet xác nhận
+  OTP/chữ ký/ảnh/GPS + nén ảnh client-side) + widget test 3 nhánh.
+
 ## [2026-09-18 04:18 UTC] Mốc 2 Owner dashboard — DONE, CI xanh 35 test + APK; kèm 5 lỗi CI bắt được
 - **Mốc 2 (commit `c70a92c`):** `owner_dashboard.dart` — khách/lứa/nợ (Chưa trả/Một phần/Quá hạn,
   còn lại = outstanding_amount) + **duyệt SO nháp** qua REST `PUT /api/resource/Sales Order/<name>`
@@ -428,3 +459,9 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   (info), `35304553943` (4 test), `35304846286` (4 test) — mỗi vòng một nguyên nhân, đọc từ log.
 - Quyết định: repo **PUBLIC** là chủ đích của chủ dự án (xác nhận trực tiếp) — ghi vết, không đổi.
 - DỪNG theo mốc: chờ review Mốc 2 trước khi làm Mốc 3 (Driver flow: giao hàng + OTP/chữ ký/ảnh/GPS).
+  (Chủ dự án đã review Mốc 2: chất lượng tốt, không cần sửa.)
+- **Nợ kỹ thuật đã biết — danh sách chưa phân trang (ghi theo yêu cầu chủ dự án, KHÔNG chặn):**
+  `owner_dashboard.dart` gọi `getList(... limit: 20)` cho cả 4 danh sách (khách/lứa/nợ/đơn nháp) và
+  CHƯA có phân trang / tải thêm. Hệ quả: dealer có > 20 khách (hoặc > 20 lứa/đơn) sẽ chỉ thấy 20 dòng
+  đầu, phần còn lại bị ẩn im lặng. **Bắt buộc bổ sung trước khi dùng thật** (phân trang hoặc
+  infinite scroll + tổng số bản ghi), không phải trước Mốc 4.

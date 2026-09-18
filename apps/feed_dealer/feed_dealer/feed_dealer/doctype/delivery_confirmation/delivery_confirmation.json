@@ -1,0 +1,233 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:DEL-{YYYY}-{#####}",
+ "creation": "2026-09-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sales_order",
+  "customer",
+  "delivery_date",
+  "driver",
+  "confirmation_method",
+  "otp_code",
+  "otp_verified_at",
+  "signature_image",
+  "proof_photos",
+  "gps_latitude",
+  "gps_longitude",
+  "gps_timestamp",
+  "no_otp_reason",
+  "pending_owner_approval",
+  "status",
+  "approved_by",
+  "approved_at",
+  "reject_reason",
+  "idempotency_key",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Đơn hàng (Sales Order)",
+   "options": "Sales Order",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1,
+   "idx": 1,
+   "description": "Đơn hàng đã submit mà tài xế đang giao."
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Khách hàng",
+   "options": "Customer",
+   "read_only": 1,
+   "in_list_view": 1,
+   "idx": 2,
+   "description": "Lấy từ Sales Order phía server (không tin giá trị client gửi lên)."
+  },
+  {
+   "fieldname": "delivery_date",
+   "fieldtype": "Date",
+   "label": "Ngày giao",
+   "default": "Today",
+   "in_list_view": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "driver",
+   "fieldtype": "Link",
+   "label": "Tài xế",
+   "options": "User",
+   "read_only": 1,
+   "in_list_view": 1,
+   "idx": 4,
+   "description": "Người xác nhận = user của phiên gọi API (không nhận từ client)."
+  },
+  {
+   "fieldname": "confirmation_method",
+   "fieldtype": "Select",
+   "label": "Cách xác nhận",
+   "options": "OTP\nSignature\nPhoto Only — Needs Approval",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 5
+  },
+  {
+   "fieldname": "otp_code",
+   "fieldtype": "Data",
+   "label": "Mã OTP khách đọc",
+   "depends_on": "eval:doc.confirmation_method=='OTP'",
+   "idx": 6
+  },
+  {
+   "fieldname": "otp_verified_at",
+   "fieldtype": "Datetime",
+   "label": "Thời điểm xác nhận OTP",
+   "read_only": 1,
+   "idx": 7
+  },
+  {
+   "fieldname": "signature_image",
+   "fieldtype": "Attach Image",
+   "label": "Ảnh chữ ký",
+   "depends_on": "eval:doc.confirmation_method=='Signature'",
+   "idx": 8
+  },
+  {
+   "fieldname": "proof_photos",
+   "fieldtype": "Table",
+   "label": "Ảnh bằng chứng giao hàng",
+   "options": "Delivery Proof Photo",
+   "idx": 9
+  },
+  {
+   "fieldname": "gps_latitude",
+   "fieldtype": "Float",
+   "label": "Vĩ độ",
+   "precision": "6",
+   "idx": 10
+  },
+  {
+   "fieldname": "gps_longitude",
+   "fieldtype": "Float",
+   "label": "Kinh độ",
+   "precision": "6",
+   "idx": 11
+  },
+  {
+   "fieldname": "gps_timestamp",
+   "fieldtype": "Datetime",
+   "label": "Thời điểm lấy GPS",
+   "idx": 12
+  },
+  {
+   "fieldname": "no_otp_reason",
+   "fieldtype": "Small Text",
+   "label": "Lý do không có OTP",
+   "depends_on": "eval:doc.confirmation_method!='OTP'",
+   "idx": 13,
+   "description": "Bắt buộc khi xác nhận bằng ảnh (Photo Only) - không được để trống."
+  },
+  {
+   "fieldname": "pending_owner_approval",
+   "fieldtype": "Check",
+   "label": "Chờ chủ đại lý duyệt lại",
+   "read_only": 1,
+   "in_list_view": 1,
+   "idx": 14,
+   "description": "Server tự set: 1 khi xác nhận bằng ảnh/chữ ký (không OTP). Client không được tự đặt."
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "Giao thành công\nGiao thành công tạm\nBị từ chối",
+   "read_only": 1,
+   "in_list_view": 1,
+   "idx": 15
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Người duyệt",
+   "options": "User",
+   "read_only": 1,
+   "idx": 16
+  },
+  {
+   "fieldname": "approved_at",
+   "fieldtype": "Datetime",
+   "label": "Thời điểm duyệt",
+   "read_only": 1,
+   "idx": 17
+  },
+  {
+   "fieldname": "reject_reason",
+   "fieldtype": "Small Text",
+   "label": "Lý do từ chối",
+   "read_only": 1,
+   "idx": 18
+  },
+  {
+   "fieldname": "idempotency_key",
+   "fieldtype": "Data",
+   "label": "Khoá chống trùng",
+   "unique": 1,
+   "no_copy": 1,
+   "search_index": 1,
+   "idx": 19,
+   "description": "Client sinh 1 lần cho mỗi lần giao; retry/hàng đợi offline dùng lại đúng khoá này."
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Ghi chú",
+   "idx": 20
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Feed Dealer",
+ "name": "Delivery Confirmation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Feed Dealer Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Feed Dealer Staff",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Driver",
+   "read": 1,
+   "create": 1,
+   "print": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
