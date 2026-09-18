@@ -57,8 +57,10 @@ jobs:
         run: chmod +x android/gradlew
 
       # THE build step — gradle directly, no flutter build, no EAS token.
+      # gradlew lives at mobile/android/gradlew; with the `mobile` working
+      # directory the relative path must include android/ (run-4 exit 127 proof).
       - name: Assemble debug APK (gradlew assembleDebug)
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./android/gradlew assembleDebug --no-daemon
 
       # The Flutter gradle template redirects the android build dir to <app>/build,
       # so the APK lands at mobile/build/...; keep the classic path as fallback.
