@@ -34,6 +34,12 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   Việc còn treo ghi lại (chưa làm, chưa chặn): **phân trang** — `driver_deliveries` cap 200/ mặc định
   50, `ErpClient.driverDeliveries()` gọi mặc định 50; dealer > 50 đơn đang giao sẽ bị cắt im lặng.
   Đã ghi chú ngay trong doc comment `core.dart` để lần sau không phải đoán lại.
+  **Ranh giới dữ liệu — ghi lại để không phải phát hiện lại:** `driver_deliveries` giờ trả `delivery_note`
+  cho tài xế, trong khi role Driver **không có quyền read** trên Delivery Note (đo ở lượt trước, bài học
+  #72). Đây là lựa chọn có chủ đích: tài xế cần biết chứng từ nào sinh ra từ lần giao của mình, và
+  giá trị trả về chỉ là TÊN chứng từ (không tiền, không giá). Cùng chỗ đó còn 1 khoảng trống đã ghi
+  từ trước: chưa có field gán tài xế theo đơn ⇒ **mọi** tài khoản Driver thấy **mọi** đơn đang giao;
+  chấp nhận được ở pilot 1 tài xế, phải quyết trước khi có tài xế thứ hai.
 
 - [2026-09-17] **Review round sau P1G — cứng hóa KIỂM CHỨNG. ĐÃ TEST trên site thật (clear-cache), CHƯA COMMIT**
   — review **không tìm ra lỗi trong code P1G/P1D**, nhưng tìm ra 2 lỗ hổng ở cách kiểm chứng, đã đóng bằng code:
