@@ -86,6 +86,27 @@ void main() {
       expect(r.ok, isFalse);
       expect(r.error, 'Không kết nối được máy chủ');
     });
+
+    test('non-JSON 200 body (proxy page / null) does not crash the app', () async {
+      // Regression for review H2: `jsonDecode` on a non-map JSON raises a
+      // TypeError (an Error, not an Exception) which the old catch missed.
+      final client = MockClient((req) async => http.Response('null', 200));
+      final erp = app.ErpClient(baseUrl: 'https://x.example', client: client);
+      final r = await erp.login('u', 'p');
+      expect(r.ok, isFalse);
+      expect(r.error, 'Phản hồi không hợp lệ từ máy chủ');
+      expect(erp.sid, isNull);
+    });
+
+    test('login with a 200 body that is a JSON list is also handled', () async {
+      final client = MockClient((req) async => http.Response('[1,2,3]', 200,
+          headers: {'set-cookie': 'sid=zzz; Path=/'}));
+      final erp = app.ErpClient(baseUrl: 'https://x.example', client: client);
+      final r = await erp.login('u', 'p');
+      expect(r.ok, isFalse);
+      expect(r.error, 'Phản hồi không hợp lệ từ máy chủ');
+      expect(erp.sid, isNull); // tokenPair/sid must not be half-set on a bad body
+    });
   });
 
   group('fetchUserRoles (Mốc 1)', () {
@@ -102,6 +123,23 @@ void main() {
       });
       final erp = app.ErpClient(baseUrl: 'https://x.example', client: client);
       expect(await erp.fetchUserRoles(), ['Feed Dealer Staff', 'Driver']);
+    });
+
+    test('email with + is percent-encoded in role filters (no silent space)', () async {
+      // Regression for review H3: a raw `+` in the query decodes to a SPACE
+      // server-side, so `user+tag@x` matched nothing and locked the user out.
+      final client = MockClient((req) async {
+        if (req.url.path == '/api/method/frappe.auth.get_logged_user') {
+          return _json({'message': 'user+tag@example.com'});
+        }
+        expect(req.url.query.contains('user%2Btag%40example.com'), isTrue,
+            reason: 'raw query must carry the percent-encoded email, got: ${req.url.query}');
+        return _json({'message': [
+          {'role': 'Driver'},
+        ]});
+      });
+      final erp = app.ErpClient(baseUrl: 'https://x.example', client: client);
+      expect(await erp.fetchUserRoles(), ['Driver']);
     });
 
     test('parses map shape', () async {

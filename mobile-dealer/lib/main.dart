@@ -84,12 +84,14 @@ class ErpClient {
   /// Password login first; on failure retry the fields as an API token pair.
   Future<AuthResult> login(String user, String password) async {
     try {
-      final res = await _http.post(
-        Uri.parse('$baseUrl/api/method/login'),
-        body: {'usr': user, 'pwd': password},
-      );
+      final res = await _http
+          .post(
+            Uri.parse('$baseUrl/api/method/login'),
+            body: {'usr': user, 'pwd': password},
+          )
+          .timeout(const Duration(seconds: 15));
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = _decodeObject(res);
         sid = RegExp(r'sid=([^;]+)').firstMatch(res.headers['set-cookie'] ?? '')?.group(1);
         return AuthResult(ok: true, fullName: data['full_name'] as String?);
       }
@@ -97,6 +99,9 @@ class ErpClient {
       final tokenResult = await _loginWithToken(user, password);
       if (tokenResult.ok) return tokenResult;
       return AuthResult(ok: false, error: friendly ?? tokenResult.error);
+    } on FormatException {
+      // non-JSON / wrong-shape body (proxy pages, null) — not a network fault
+      return const AuthResult(ok: false, error: 'Phản hồi không hợp lệ từ máy chủ');
     } on Exception {
       return const AuthResult(ok: false, error: 'Không kết nối được máy chủ');
     }
@@ -104,17 +109,33 @@ class ErpClient {
 
   Future<AuthResult> _loginWithToken(String key, String secret) async {
     try {
-      final res = await _http.get(
-        Uri.parse('$baseUrl/api/method/frappe.auth.get_logged_user'),
-        headers: {'Authorization': 'token $key:$secret'},
-      );
+      final res = await _http
+          .get(
+            Uri.parse('$baseUrl/api/method/frappe.auth.get_logged_user'),
+            headers: {'Authorization': 'token $key:$secret'},
+          )
+          .timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) return const AuthResult(ok: false, error: 'Đăng nhập thất bại');
       tokenPair = '$key:$secret';
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final data = _decodeObject(res);
       return AuthResult(ok: true, fullName: data['message'] as String?);
+    } on FormatException {
+      return const AuthResult(ok: false, error: 'Phản hồi không hợp lệ từ máy chủ');
     } on Exception {
       return const AuthResult(ok: false, error: 'Không kết nối được máy chủ');
     }
+  }
+
+  /// jsonDecode + shape check. The `as Map` on a non-map JSON (proxy pages,
+  /// literal `null`) raises TypeError — an Error, NOT an Exception — which the
+  /// `on Exception` clauses do NOT catch and the app would crash. Converting
+  /// it to FormatException keeps every caller on the handled path.
+  static Map<String, dynamic> _decodeObject(http.Response res) {
+    final decoded = jsonDecode(res.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Response body is not a JSON object');
+    }
+    return decoded;
   }
 
   /// Maps frappe's raw auth-failure payloads to Vietnamese messages. Checks the
@@ -139,9 +160,15 @@ class ErpClient {
   ///   A: {"message": [{"role": "X"}, ...]}
   ///   B: {"message": {"roles": {"X": {...}, ...}}}
   Future<List<String>> fetchUserRoles() async {
+    // The logged-in email is interpolated into the JSON filters value. Raw `+`
+    // in a query string decodes to a SPACE server-side, so `user+x@...` (very
+    // common with Gmail) would silently become `user x@...` and match NO rows
+    // -> all roles disabled -> lockout. Encode the email only; the server
+    // URL-decodes the whole value once, yielding the original email in JSON.
+    final email = Uri.encodeComponent(await loggedUser());
     final data = await getResource('/api/method/frappe.client.get_list'
         '?doctype=Has%20Role&parenttype=User'
-        '&fields=["role"]&filters=[["parent","=","${await loggedUser()}"]]'
+        '&fields=["role"]&filters=[["parent","=","$email"]]'
         '&limit_page_length=0');
     final message = data['message'];
     if (message is List) {
