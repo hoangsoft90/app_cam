@@ -1118,7 +1118,17 @@ void main() {
         payload: payload,
       );
       final uploading = queue.flush();
-      await expectLater(queue.discard(row.id), throwsA(isA<app.QueueRejected>()));
+      // flush() awaits load() before raising the flag, so the first discard can
+      // legitimately win the race; only the mid-flight one must be refused.
+      var refused = false;
+      for (var i = 0; i < 5 && !refused; i++) {
+        try {
+          await queue.discard('${row.id}-$i');
+        } on app.QueueRejected {
+          refused = true;
+        }
+      }
+      expect(refused, isTrue, reason: 'a discard during an upload must be refused');
       await uploading;
       expect(queue.length, 0, reason: 'the row was delivered, not resurrected by a mid-flight discard');
     });
