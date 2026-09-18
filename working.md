@@ -30,7 +30,11 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   ```
   Không regress phần khác: `driver_deliveries` chỉ được dùng bởi app + p2 (grep toàn app: 0 caller
   khác), nên p0/p1a–p1d/p1g không bị ảnh hưởng.
-  CI cho commit này: run `35316316107` (đang chạy lúc ghi dòng này).
+  CI (số lấy từ GitHub API, không từ trí nhớ): commit code `8cffc35` → run `35314907159` success
+  (`40 tests passed`, `BUILD SUCCESSFUL in 4m 11s`, artifact `camviet-debug-apk` 80.683.784 B);
+  commit backend `58f21d1` → run `35316316107` success; docs `e15f921` → run `35317462022` success;
+  docs `c8f2078` → run `35318225055` success (`40 tests passed`, `BUILD SUCCESSFUL in 3m 58s`,
+  artifact 80.685.858 B).
   Việc còn treo ghi lại (chưa làm, chưa chặn): **phân trang** — `driver_deliveries` cap 200/ mặc định
   50, `ErpClient.driverDeliveries()` gọi mặc định 50; dealer > 50 đơn đang giao sẽ bị cắt im lặng.
   Đã ghi chú ngay trong doc comment `core.dart` để lần sau không phải đoán lại.
