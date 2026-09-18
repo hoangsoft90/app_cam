@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:mobile_dealer/core.dart';
+import 'package:mobile_dealer/driver_delivery.dart';
 import 'package:mobile_dealer/owner_dashboard.dart';
 import 'package:mobile_dealer/restore_session.dart';
 import 'package:mobile_dealer/session.dart';
@@ -11,7 +12,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 // Tests drive ErpClient/FinancialAction/etc. through this file's namespace.
 export 'package:mobile_dealer/core.dart'
     show
+        ApiRejected,
         AuthResult,
+        DeliveryResult,
         ErpClient,
         FinancialAction,
         SubmitRejected,
@@ -20,6 +23,15 @@ export 'package:mobile_dealer/core.dart'
         newIdempotencyKey,
         validateBaseUrl,
         vnd;
+export 'package:mobile_dealer/driver_delivery.dart'
+    show
+        ConfirmDeliverySheet,
+        DeliveryDeps,
+        DriverDeliveryScreen,
+        SignaturePad,
+        kMethodOtp,
+        kMethodPhotoOnly,
+        kMethodSignature;
 
 void main() => runApp(const CamVietApp());
 
@@ -209,10 +221,19 @@ class _LoginScreenState extends State<LoginScreen> {
 /// (acceptance #5). Roles come from the SERVER, filtered to what this app
 /// understands — an account with none of them falls back to Staff read-only.
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.erp, this.fullName});
+  const HomeScreen({
+    super.key,
+    required this.erp,
+    this.fullName,
+    this.deliveryDeps = const DeliveryDeps(),
+  });
 
   final ErpClient erp;
   final String? fullName;
+
+  /// Camera/GPS seams for the driver screen; tests inject fakes here so the
+  /// widget tree never touches a platform channel.
+  final DeliveryDeps deliveryDeps;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -339,9 +360,13 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           else if (driverMode)
             FilledButton.icon(
-              onPressed: () => setState(() => _status = 'Màn giao hàng — Mốc 3'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => DriverDeliveryScreen(erp: widget.erp, deps: widget.deliveryDeps),
+                ),
+              ),
               icon: const Icon(Icons.local_shipping),
-              label: const Text('Giao hàng (Mốc 3)'),
+              label: const Text('Giao hàng'),
             )
           else
             // MONEY: guarded; Mốc 5 will REMOVE it from the tree when offline.

@@ -17,6 +17,11 @@ int _idemSeq = 0;
 
 /// Stable per logical operation: the caller computes it once when the op is
 /// created and stores it with the queued row (never per retry).
+/** Server-side backstops from `feed_dealer.api`; the client stops earlier so a
+ * farm-network round trip is not spent on a payload the server must reject. */
+const int kMaxPhotoBase64 = 1_500_000; // 1.5 MB per image (decoded)
+const int kMaxPhotos = 6;
+
 String newIdempotencyKey() {
   _idemSeq += 1;
   return 'mob-${DateTime.now().toUtc().microsecondsSinceEpoch}-$_idemSeq';
@@ -257,6 +262,72 @@ class ErpClient {
     throw SubmitRejected(_serverMessage(res.body) ?? 'Máy chủ từ chối (HTTP ${res.statusCode})');
   }
 
+  /// Mốc 3 — orders the driver may deliver, with the confirmation state.
+  /// Rows come from `feed_dealer.api.driver_deliveries` (server owns the window:
+  /// submitted orders, live confirmation if any). Keys are Sales Order fields
+  /// plus `confirmation` / `confirmation_status` / `pending_owner_approval`.
+  Future<List<Map<String, dynamic>>> driverDeliveries({int limit = 50}) async {
+    final data = await getResource(
+      Uri(path: '/api/method/feed_dealer.api.driver_deliveries', queryParameters: {'limit': '$limit'})
+          .toString(),
+    );
+    final message = data['message'];
+    if (message is! List) throw const FormatException('Unrecognised driver_deliveries payload');
+    return message.cast<Map>().map((row) => row.cast<String, dynamic>()).toList();
+  }
+
+  /// Mốc 3 — file a proof of delivery.
+  ///
+  /// `idempotencyKey` is generated ONCE per delivery attempt and REUSED on every
+  /// retry (dropped link, double tap): the server returns the record it already
+  /// has instead of creating a second one. Never regenerate it inside a retry.
+  ///
+  /// Sent form-encoded with the payload as JSON text: that is the shape every
+  /// frappe version accepts for a whitelisted method, and it avoids betting on
+  /// JSON-body parsing behaviour of a specific release.
+  ///
+  /// The whole body goes over the wire at once (photo evidence can be a few MB),
+  /// so the timeout is wider than the read paths.
+  Future<DeliveryResult> confirmDelivery({
+    required String salesOrder,
+    required String method,
+    required String idempotencyKey,
+    String? otpCode,
+    String? noOtpReason,
+    String? signaturePng,
+    List<String> photos = const [],
+    double? gpsLatitude,
+    double? gpsLongitude,
+    String? notes,
+  }) async {
+    final payload = <String, dynamic>{
+      'sales_order': salesOrder,
+      'confirmation_method': method,
+      'idempotency_key': idempotencyKey,
+      if (otpCode != null && otpCode.isNotEmpty) 'otp_code': otpCode,
+      if (noOtpReason != null && noOtpReason.isNotEmpty) 'no_otp_reason': noOtpReason,
+      if (signaturePng != null && signaturePng.isNotEmpty) 'signature_png': signaturePng,
+      if (photos.isNotEmpty) 'photos': photos,
+      if (gpsLatitude != null) 'gps_latitude': gpsLatitude,
+      if (gpsLongitude != null) 'gps_longitude': gpsLongitude,
+      if (notes != null && notes.isNotEmpty) 'notes': notes,
+    };
+    final res = await _http
+        .post(
+          Uri.parse('$baseUrl/api/method/feed_dealer.api.confirm_delivery'),
+          headers: _authHeaders,
+          body: {'payload': jsonEncode(payload)},
+        )
+        .timeout(const Duration(seconds: 60));
+    if (res.statusCode != 200) {
+      throw ApiRejected(_serverMessage(res.body) ?? 'Máy chủ từ chối (HTTP ${res.statusCode})');
+    }
+    final data = _decodeObject(res);
+    final message = data['message'];
+    if (message is! Map) throw const FormatException('Unrecognised confirm_delivery payload');
+    return DeliveryResult.fromJson(message.cast<String, dynamic>());
+  }
+
   /// frappe wraps validation errors in `_server_messages`; extract the first
   /// human-readable one instead of dumping raw JSON at the user.
   static String? _serverMessage(String body) {
@@ -272,6 +343,47 @@ class ErpClient {
       return null;
     }
   }
+}
+
+/// Server refused a write (validation, permission, stock...). The message is the
+/// server's own text — shown verbatim, never replaced by a local guess.
+class ApiRejected implements Exception {
+  const ApiRejected(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// What the server did with a proof of delivery (Mốc 3).
+///
+/// `status` is the business outcome: "Giao thành công" (final, Delivery Note
+/// submitted) or "Giao thành công tạm" (the owner must approve before stock
+/// leaves the warehouse). `deliveryNote` is empty on the provisional branch.
+class DeliveryResult {
+  const DeliveryResult({
+    required this.name,
+    required this.status,
+    required this.pendingOwnerApproval,
+    this.deliveryNote,
+    this.idempotent = false,
+  });
+
+  final String name;
+  final String status;
+  final bool pendingOwnerApproval;
+  final String? deliveryNote;
+  final bool idempotent;
+
+  bool get isFinal => !pendingOwnerApproval;
+
+  factory DeliveryResult.fromJson(Map<String, dynamic> json) => DeliveryResult(
+        name: json['name'] as String? ?? '',
+        status: json['status'] as String? ?? '',
+        pendingOwnerApproval: (json['pending_owner_approval'] as num? ?? 0) != 0,
+        deliveryNote: json['delivery_note'] as String?,
+        idempotent: json['idempotent'] == true,
+      );
 }
 
 /// The server refused the submit (credit limit, permissions, workflow...).

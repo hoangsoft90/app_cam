@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:mobile_dealer/driver_delivery.dart';
 import 'package:mobile_dealer/main.dart' as app;
 import 'package:mobile_dealer/owner_dashboard.dart';
 import 'package:mobile_dealer/restore_session.dart';
@@ -567,6 +568,236 @@ void main() {
       expect(find.textContaining('Lỗi tải vai trò'), findsOneWidget);
       // And the app-level default role is still the read-only Staff default.
       expect(find.text('Vai trò: Feed Dealer Staff'), findsOneWidget);
+    });
+  });
+
+  group('DriverDeliveryScreen (Mốc 3 — real widget, mocked ERP, fake camera/GPS)', () {
+    // 1x1 PNG — enough that the sheet really holds image payload, and small
+    // enough that the client-side size guard passes.
+    final tinyPng = base64Encode(<int>[
+      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00,
+      0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ]);
+
+    final orderRow = <String, dynamic>{
+      'name': 'SAL-ORD-2026-00300',
+      'customer': 'CUST-1',
+      'customer_name': 'Trại Cám Vũ',
+      'grand_total': 1500000,
+      'delivery_date': '2026-09-19',
+      'confirmation': null,
+      'confirmation_status': null,
+      'pending_owner_approval': 0,
+    };
+
+    /// Mocked ERP for the driver door; [sent] records every confirm_delivery
+    /// body so tests can prove what actually left the device.
+    MockClient driverErp(
+      List<Map<String, dynamic>> sent, {
+      Map<String, dynamic>? reply,
+      int replyStatus = 200,
+      String failureBody = '{"_server_messages": "[\\"Đơn hàng chưa được duyệt\\"]"}',
+      bool failAlways = false,
+      List<Map<String, dynamic>>? rows,
+    }) {
+      return MockClient((req) async {
+        if (req.url.path == '/api/method/feed_dealer.api.driver_deliveries') {
+          return _json({'message': rows ?? [orderRow]});
+        }
+        if (req.url.path == '/api/method/feed_dealer.api.confirm_delivery') {
+          sent.add({...req.bodyFields});
+          if (failAlways) return http.Response.bytes(utf8.encode(failureBody), 417);
+          return _json({
+            'message': reply ??
+                {
+                  'name': 'DEL-2026-00001',
+                  'status': 'Giao thành công',
+                  'pending_owner_approval': 0,
+                  'delivery_note': 'MAT-DN-2026-00042',
+                  'idempotent': false,
+                }
+          }, status: replyStatus);
+        }
+        return http.Response('{"exc": ["nope"]}', 404);
+      });
+    }
+
+    Map<String, dynamic> payloadOf(Map<String, dynamic> sent) =>
+        jsonDecode(sent['payload'] as String) as Map<String, dynamic>;
+
+    Future<void> openSheet(WidgetTester tester, app.ErpClient erp, {DeliveryDeps? deps}) async {
+      await tester.pumpWidget(MaterialApp(
+        home: app.DriverDeliveryScreen(
+          erp: erp,
+          deps: deps ?? const DeliveryDeps(pickPhoto: null, readGps: null),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Xác nhận giao'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> tapSubmit(WidgetTester tester) async {
+      await tester.ensureVisible(find.text('Gửi xác nhận'));
+      await tester.tap(find.text('Gửi xác nhận'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('OTP branch: sends the OTP and reports the Delivery Note the server filed',
+        (tester) async {
+      final sent = <Map<String, dynamic>>[];
+      final erp = app.ErpClient(baseUrl: 'https://x.example', client: driverErp(sent));
+      await openSheet(tester, erp);
+
+      // OTP is the default branch; without a code the button must stay disabled.
+      final button = tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Gửi xác nhận'));
+      expect(button.onPressed, isNull, reason: 'no OTP typed yet');
+
+      await tester.enterText(find.byType(TextField), '123456');
+      await tester.pumpAndSettle();
+      await tapSubmit(tester);
+
+      expect(sent.length, 1, reason: 'exactly one request left the device');
+      final payload = payloadOf(sent.single);
+      expect(payload['confirmation_method'], 'OTP');
+      expect(payload['otp_code'], '123456');
+      expect(payload['sales_order'], 'SAL-ORD-2026-00300');
+      expect((payload['idempotency_key'] as String).isNotEmpty, isTrue);
+
+      // The driver is told the stock document exists (OTP is final).
+      expect(find.text('Đã giao'), findsOneWidget);
+      expect(find.textContaining('MAT-DN-2026-00042'), findsOneWidget);
+    });
+
+    testWidgets('Photo Only: blocked without a reason, then provisional with reason+photo+GPS',
+        (tester) async {
+      final sent = <Map<String, dynamic>>[];
+      final erp = app.ErpClient(baseUrl: 'https://x.example', client: driverErp(sent));
+      await openSheet(
+        tester,
+        erp,
+        deps: DeliveryDeps(
+          pickPhoto: () async => tinyPng,
+          readGps: () async => (lat: 10.12345, lng: 106.54321),
+        ),
+      );
+
+      await tester.tap(find.text('Ảnh (chờ chủ duyệt)'));
+      await tester.pumpAndSettle();
+
+      // GPS is fetched on choosing this branch (the server requires a fix here).
+      expect(find.textContaining('Toạ độ: 10.12345'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).first, 'Khách không nghe máy');
+      await tester.pumpAndSettle();
+      // Reason alone is not enough: the server also wants a photo.
+      final button = tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Gửi xác nhận'));
+      expect(button.onPressed, isNull, reason: 'no photo yet');
+
+      await tester.ensureVisible(find.textContaining('Chụp ảnh'));
+      await tester.tap(find.textContaining('Chụp ảnh'));
+      await tester.pumpAndSettle();
+      expect(find.text('Đã có 1 ảnh bằng chứng'), findsOneWidget);
+      await tapSubmit(tester);
+
+      final payload = payloadOf(sent.single);
+      expect(payload['confirmation_method'], 'Photo Only — Needs Approval');
+      expect(payload['no_otp_reason'], 'Khách không nghe máy');
+      expect((payload['photos'] as List).length, 1);
+      expect(payload['gps_latitude'], 10.12345);
+
+      // Provisional: stock does NOT leave the warehouse yet — said plainly.
+      expect(find.text('Đã gửi, chờ duyệt'), findsOneWidget);
+    });
+
+    testWidgets('server refusal is shown verbatim and the retry reuses the SAME idempotency key',
+        (tester) async {
+      final sent = <Map<String, dynamic>>[];
+      final erp = app.ErpClient(
+          baseUrl: 'https://x.example', client: driverErp(sent, failAlways: true));
+      await openSheet(tester, erp);
+
+      await tester.enterText(find.byType(TextField), '999999');
+      await tester.pumpAndSettle();
+      await tapSubmit(tester);
+
+      expect(find.textContaining('Đơn hàng chưa được duyệt'), findsOneWidget,
+          reason: 'the server message is what the driver must see');
+
+      // Owner policy: a dropped link must not file two deliveries — retry keeps
+      // the key generated when the sheet opened.
+      await tapSubmit(tester);
+      expect(sent.length, 2);
+      expect(payloadOf(sent[1])['idempotency_key'], payloadOf(sent[0])['idempotency_key']);
+    });
+
+    testWidgets('offline: filing a delivery is refused locally, nothing is sent',
+        (tester) async {
+      final sent = <Map<String, dynamic>>[];
+      final erp = app.ErpClient(baseUrl: 'https://x.example', client: driverErp(sent));
+      await openSheet(tester, erp);
+
+      await tester.enterText(find.byType(TextField), '123456');
+      await tester.pumpAndSettle();
+      app.isOnline.value = false; // simulate the dev toggle / a dead link
+      await tapSubmit(tester);
+
+      expect(find.textContaining('xác nhận giao hàng cần kết nối mạng'), findsOneWidget);
+      expect(sent, isEmpty);
+      app.isOnline.value = true;
+    });
+
+    testWidgets('a rejected delivery appears as re-fileable, a live one as done',
+        (tester) async {
+      final rows = <Map<String, dynamic>>[
+        {
+          'name': 'SAL-ORD-2026-00301',
+          'customer_name': 'Trại A',
+          'grand_total': 500000,
+          'delivery_date': '2026-09-19',
+          'confirmation': 'DEL-1',
+          'confirmation_status': 'Bị từ chối',
+          'confirmation_reject_reason': 'ảnh mờ',
+          'pending_owner_approval': 0,
+        },
+        {
+          'name': 'SAL-ORD-2026-00302',
+          'customer_name': 'Trại B',
+          'grand_total': 700000,
+          'delivery_date': '2026-09-19',
+          'confirmation': 'DEL-2',
+          'confirmation_status': 'Giao thành công',
+          'confirmation_delivery_note': 'MAT-DN-2026-00077',
+          'pending_owner_approval': 0,
+        },
+        {
+          'name': 'SAL-ORD-2026-00303',
+          'customer_name': 'Trại C',
+          'grand_total': 900000,
+          'delivery_date': '2026-09-19',
+          'confirmation': 'DEL-3',
+          'confirmation_status': 'Giao thành công tạm',
+          'pending_owner_approval': 1,
+        },
+      ];
+      final erp = app.ErpClient(
+          baseUrl: 'https://x.example', client: driverErp(<Map<String, dynamic>>[], rows: rows));
+      await tester.pumpWidget(MaterialApp(home: app.DriverDeliveryScreen(erp: erp)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Xác nhận lại'), findsOneWidget, reason: 'only the rejected one');
+      expect(find.textContaining('Lý do từ chối: ảnh mờ'), findsOneWidget);
+      expect(find.textContaining('phiếu xuất kho MAT-DN-2026-00077'), findsOneWidget);
+      // The provisional one says exactly what is still missing: the owner.
+      expect(find.text('Trạng thái: Chờ chủ đại lý duyệt'), findsOneWidget);
+      // And it is NOT offered as an action (only a rejected delivery can be re-filed).
+      expect(find.text('Xác nhận giao'), findsNothing);
     });
   });
 }

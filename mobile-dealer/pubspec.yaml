@@ -35,6 +35,10 @@ dependencies:
   http: ^1.2.0
   shared_preferences: ^2.3.0
   flutter_secure_storage: ^9.2.4
+  # Mốc 3 (driver proof of delivery). Both are wrapped behind injectable functions
+  # in delivery.dart so widget tests never touch the platform channels.
+  image_picker: ^1.2.3
+  geolocator: ^14.0.3
 
 dev_dependencies:
   flutter_test:
