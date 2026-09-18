@@ -456,3 +456,42 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
     `sdkmanager` fail ở bước "preparing"; Flutter 3.47 cần Android SDK 36; bỏ dòng `ndkVersion`
     trong `build.gradle.kts` KHÔNG tránh được NDK (plugin Flutter tự áp default). Mac và sandbox
     đều KHÔNG có Xcode ⇒ chỉ build được Android (`flutter build apk` đã chạy thật, APK 150 MB).
+
+---
+
+## P2 Mốc 3 — proof of delivery (2026-09-18, vòng review thứ 2)
+
+64. **`_, _, text = text.partition(",")` GIẾT luôn hàm dịch `_()` của frappe trong cùng hàm.**
+    Gán vào tên `_` làm nó thành biến LOCAL của cả function body ⇒ mọi `frappe.throw(_("..."))`
+    phía dưới chết với `UnboundLocalError: cannot access local variable '_'`. Đo thật (P2 Mốc 3,
+    2026-09-18): guard `data:` URI nằm trong `_normalise_image`, mà mọi nhánh THROW nằm SAU nó —
+    nên đúng lúc cần báo lỗi cho người dùng thì server trả 500 với message vô nghĩa. Happy path
+    vẫn xanh nên không test nào bắt được cho tới khi có test cho nhánh LỖI. Quy tắc: không bao giờ
+    dùng `_` làm biến tạm trong file có `from frappe import _`; đặt tên thật (`_prefix`, `_comma`).
+65. **Test nhánh LỖI phải kiểm chính CÂU THÔNG BÁO, không chỉ "có throw".** Cùng gốc với #64:
+    assert `raise` là chưa đủ, phải khẳng định message chứa nội dung nghiệp vụ mong đợi. Nếu chỉ
+    kiểm "có exception", một 500 (UnboundLocalError/TypeError) cũng làm test xanh. Bộ P2 Mốc 3 dùng
+    helper `_reject(fn, expect_substring)` nên bắt được ngay ở T12c/T13a.
+66. **Dữ liệu client gửi lên phải được kiểm TRA KIỂU trước khi đo/kích thước.** `photos` là list
+    thô từ app: một entry dạng dict ⇒ `len()` trả số KEY (không phải số byte) và `raw.strip()` chết
+    `AttributeError` — hai lỗi im lặng khác nhau trên cùng một payload. Ép "list of non-empty str"
+    một lần ở cửa vào (`_photo_texts`) rồi mọi hàm sau được phép giả định sạch.
+67. **Đọc bản ghi ưu tiên trạng thái SỐNG, đừng dùng dict comprehension.** Với bảng có thể có nhiều
+    row cho cùng một khoá (một xác nhận bị từ chối + một xác nhận nộp lại),
+    `{row.key: row for row in rows}` giữ row cuối do DB trả về — nghĩa là tài xế có thể thấy bản ghi
+    ĐÃ CHẾT và giao lại đơn đã xác nhận. Phải chọn có chủ đích: row `live` thắng, row bị từ chối chỉ
+    là fallback.
+68. **`MAX // (1024*1024)` in ra người dùng là SỐ SAI.** Giới hạn 1,5 MB bị in thành "1 MB" ⇒
+    một ảnh 1,4 MB bị yêu cầu nén xuống dưới mức nó đã thoả. Dùng phép chia thực + `{:.1f}` cho MỌI
+    ngưỡng hiển thị.
+69. **Retry phải idempotent ở CẢ hai đường (approve và reject).** Sau khi thêm guard "chỉ duyệt/từ
+    chối được bản đang chờ", lần bấm thứ hai của chủ đại lý ném lỗi — trong khi approve thì không.
+    Bất đối xứng kiểu này lộ ra khi mạng chập chờn: cùng một cú double-tap, một nút im lặng một nút
+    báo lỗi. Cho `reject` trả về bản ghi hiện có khi đã ở trạng thái đó, và giữ throw cho xung đột
+    THẬT (từ chối bản đã duyệt).
+70. **`driver_deliveries` trả về Sales Order — khoá là `name`, KHÔNG có `sales_order`.** Test viết
+    theo giả định sai đó chết `KeyError` giữa suite (đo thật), làm cả lượt chạy không có kết quả nào
+    dùng được. Trước khi viết assert, in 1 row mẫu và đọc ĐÚNG tên field API trả về.
+71. **Khi test bắt được lỗi mà bản vá trước đó "đã PASS": đừng sửa test, hãy đọc kết quả.** Lượt
+    Mốc 3 đầu PASS 15/15 vì bộ test CHƯA chạm nhánh lỗi; sau khi thêm T12/T13 (payload sai + ngưỡng
+    kích thước) mới lộ ra #64 và 2 lỗ khác. Lỗ hổng thật là ở ĐỘ PHỦ test, không phải ở con số 15/15.

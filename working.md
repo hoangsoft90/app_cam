@@ -460,6 +460,38 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 - Quyết định: repo **PUBLIC** là chủ đích của chủ dự án (xác nhận trực tiếp) — ghi vết, không đổi.
 - DỪNG theo mốc: chờ review Mốc 2 trước khi làm Mốc 3 (Driver flow: giao hàng + OTP/chữ ký/ảnh/GPS).
   (Chủ dự án đã review Mốc 2: chất lượng tốt, không cần sửa.)
+## 2026-09-18 (tiếp) — Mốc 3 nửa backend: vòng REVIEW thứ 2
+
+- **7 lỗ hổng thật tìm được khi tự soi lại diff CHƯA commit** (không phải lint, không phải phỏng đoán).
+  Trong đó (1)(2)(3)(4)(5) là của lượt review này; (6)(7) đã vá ở lượt review ngay trước và cũng nằm
+  trong cùng diff chưa commit:
+  1. `_normalise_image` dùng `_, _, text = text.partition(",")` ⇒ tên `_` thành local, **mọi
+     `frappe.throw(_(...))` trong hàm chết `UnboundLocalError`** → mọi payload ảnh sai trả 500 thay
+     vì thông báo đọc được. Bắt bởi test mới T13a/T12c (nhánh lỗi).
+  2. `photos` (list thô từ client) chưa kiểm KIỂU: entry dạng dict ⇒ `len()` đếm số KEY và
+     `raw.strip()` nổ `AttributeError`. Thêm `_photo_texts()` chặn ngay ở cửa vào.
+  3. `MAX_IMAGE_BYTES // (1024*1024)` in "1 MB" cho ngưỡng 1,5 MB → thông báo sai số.
+  4. `driver_deliveries` gộp bằng dict comprehension ⇒ row BỊ TỪ CHỐI ghi đè row SỐNG của cùng đơn
+     (tài xế có thể thấy bản ghi đã chết và giao lại đơn đã xác nhận). Live-wins + test T14.
+  5. `reject_delivery` bấm lần 2 ném lỗi trong khi `approve_delivery` thì không (bất đối xứng retry)
+     → cho reject trả về bản ghi hiện có khi đã bị từ chối; vẫn throw khi từ chối bản ĐÃ DUYỆT.
+     (Lỗi (1) chỉ LỘ RA khi tôi thêm test cho các nhánh lỗi — 15/15 PASS trước đó không chạm tới.)
+  6. `approve_delivery` **không** kiểm trạng thái trước khi gọi `apply_owner_decision` ⇒ có thể
+     "hồi sinh" một xác nhận đã bị từ chối. Thêm guard + test T9e.
+  7. `confirm_delivery` không khoá: 2 điện thoại cùng submit có thể cùng qua check "một xác nhận
+     sống" → thêm `for_update=True` trên row Sales Order (đã ghi rõ giới hạn: `bench execute`
+     chạy autocommit nên test KHÔNG chứng minh được khoá này, chỉ HTTP request thật mới khoá).
+- **Bằng chứng:** `p2_delivery_acceptance.run` trên site thật (Mac, ERPNext v16) →
+  **`TOTAL: 25   PASS: 25   FAIL: 0`** (thêm T12a-d payload sai + data-URI, T13a/b ngưỡng ảnh,
+  T14 ưu tiên bản ghi sống, T9b2/T9d2 retry no-op, T9e chặn từ chối bản đã duyệt).
+  Log: `/tmp/m3_acc_final2.log` (trong container); lượt trước đỏ đúng 1 case T13a vì lỗi #1.
+- **Lỗi tôi tự gây trong chính lượt review này:** test T14 viết theo field không tồn tại
+  (`row["sales_order"]` — `driver_deliveries` trả Sales Order, khoá là `name`) ⇒ `KeyError` giữa
+  suite; đã sửa. Bài học #70.
+- **Còn treo, cần chủ dự án (không tự quyết):** quyền `Driver` hiện có `read` trên **mọi**
+  Delivery Confirmation (xem được ảnh/GPS/chữ ký của đại lý khác qua REST). Đề xuất 1 dòng JSON:
+  thêm `"if_owner": 1` vào permission của Driver + migrate. Chưa áp vì đây là ranh giới lộ dữ liệu
+  mà chủ dự án đã nói muốn tự quyết.
 - **Nợ kỹ thuật đã biết — danh sách chưa phân trang (ghi theo yêu cầu chủ dự án, KHÔNG chặn):**
   `owner_dashboard.dart` gọi `getList(... limit: 20)` cho cả 4 danh sách (khách/lứa/nợ/đơn nháp) và
   CHƯA có phân trang / tải thêm. Hệ quả: dealer có > 20 khách (hoặc > 20 lứa/đơn) sẽ chỉ thấy 20 dòng

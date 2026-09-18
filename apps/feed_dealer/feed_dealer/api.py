@@ -25,13 +25,22 @@ import json
 import frappe
 from frappe import _
 
+# Single source of truth for the status string: the controller owns the lifecycle,
+# so api.py imports it instead of re-typing the literal (a typo here would silently
+# mis-read a rejected confirmation as live).
+from feed_dealer.feed_dealer.doctype.delivery_confirmation.delivery_confirmation import (
+	STATUS_REJECTED,
+)
+
 MANAGER_ROLES = ("Feed Dealer Manager", "System Manager")
 DELIVERY_ROLES = ("Driver", "Feed Dealer Staff", "Feed Dealer Manager", "System Manager")
 
 MAX_PHOTOS = 6
-# Client compresses before sending (image_picker maxWidth/quality); this is the
-# server-side backstop, not the primary defence.
-MAX_IMAGE_BYTES = 3 * 1024 * 1024
+# Client compresses before sending (image_picker maxWidth/quality); these are the
+# server-side backstop, not the primary defence. The TOTAL cap matters as much as
+# the per-image one: 6 x 3 MB would be a ~24 MB request over a farm-network link.
+MAX_IMAGE_BYTES = 1536 * 1024
+MAX_TOTAL_BYTES = 6 * 1024 * 1024
 
 
 # --------------------------------------------------------------------- guards
@@ -72,6 +81,28 @@ def _as_payload(payload):
 	return payload
 
 
+def _photo_texts(photos):
+	"""Validate the client's photo list as a list of NON-EMPTY base64 strings.
+
+	This is raw input from an untrusted app: a dict, a number or a nested object
+	used to reach `len()` / `.strip()` and come out as an unhandled 500 traceback
+	instead of a message the driver can read. Refuse the shape up front (review
+	catch, 2026-09-18) - nothing below has to defend itself after this.
+	"""
+	if not isinstance(photos, list):
+		frappe.throw(_("`photos` phải là danh sách ảnh base64."))
+	out = []
+	for index, raw in enumerate(photos, start=1):
+		if not isinstance(raw, str) or not raw.strip():
+			frappe.throw(
+				_("Ảnh bằng chứng {0} phải là chuỗi base64 (nhận được {1}).").format(
+					index, type(raw).__name__
+				)
+			)
+		out.append(raw)
+	return out
+
+
 def _normalise_image(raw, label):
 	"""Validate an image payload and return it as CLEAN base64 text.
 
@@ -85,7 +116,12 @@ def _normalise_image(raw, label):
 		return None
 	text = raw.strip()
 	if text.startswith("data:"):
-		_, _, text = text.partition(",")
+		# NEVER unpack into `_` here: it would shadow frappe's `_()` translation
+		# function for the WHOLE function body, and every frappe.throw(_(...))
+		# below then dies with "cannot access local variable '_'" (measured
+		# 2026-09-18 via T13a - the messages only fail on the error path, so the
+		# happy path kept passing while every refusal was a 500).
+		_prefix, _comma, text = text.partition(",")
 	try:
 		# validate=True: a corrupt payload must FAIL loudly instead of decoding to
 		# silently-truncated bytes (base64 discards invalid characters otherwise).
@@ -95,12 +131,33 @@ def _normalise_image(raw, label):
 	if not content:
 		frappe.throw(_("{0}: ảnh rỗng.").format(label))
 	if len(content) > MAX_IMAGE_BYTES:
+		# NOT `//`: integer division printed the 1.5 MB cap as "1 MB", so a 1.4 MB
+		# image was told to shrink below a limit it already respected.
 		frappe.throw(
-			_("{0}: ảnh {1:.1f} MB vượt giới hạn {2} MB - cần nén lại phía app.").format(
-				label, len(content) / 1024 / 1024, MAX_IMAGE_BYTES // (1024 * 1024)
+			_("{0}: ảnh {1:.1f} MB vượt giới hạn {2:.1f} MB - cần nén lại phía app.").format(
+				label, len(content) / 1024 / 1024, MAX_IMAGE_BYTES / 1024 / 1024
 			)
 		)
 	return text
+
+
+def _normalise_total(data, photos):
+	"""Refuse an oversized BATCH before decoding anything, so a slow link is not
+	wasted on a payload the server would reject at the end anyway.
+
+	Callers MUST pass `_photo_texts()` output: this only measures.
+	"""
+	signature = data.get("signature_png")
+	payloads = [*photos, signature if isinstance(signature, str) else ""]
+	total = sum(len(p) for p in payloads)
+	# base64 is ~4/3 of the decoded size; compare like for like.
+	decoded = total * 3 // 4
+	if decoded > MAX_TOTAL_BYTES:
+		frappe.throw(
+			_("Tổng ảnh {0:.1f} MB vượt giới hạn {1:.0f} MB - cần nén lại phía app.").format(
+				decoded / 1024 / 1024, MAX_TOTAL_BYTES / 1024 / 1024
+			)
+		)
 
 
 def _attach(doc, filename, base64_text):
@@ -155,6 +212,13 @@ def confirm_delivery(payload=None):
 	if not key:
 		frappe.throw(_("Thiếu idempotency_key (app phải sinh khoá này một lần cho mỗi lần giao)."))
 
+	# Serialise everything that follows for this order. Without the row lock two
+	# phones (or a double tap with different keys) can both pass the "one live
+	# confirmation" check and file two deliveries for one order - the same class
+	# of race P1B hit with concurrent payment entries.
+	if not frappe.db.get_value("Sales Order", sales_order, "name", for_update=True):
+		frappe.throw(_("Đơn hàng {0} không tồn tại.").format(sales_order))
+
 	existing = frappe.db.get_value(
 		"Delivery Confirmation", {"idempotency_key": key}, "name"
 	)
@@ -165,9 +229,10 @@ def confirm_delivery(payload=None):
 		out["idempotent"] = True
 		return out
 
-	photos = data.get("photos") or []
+	photos = _photo_texts(data.get("photos") or [])
 	if len(photos) > MAX_PHOTOS:
 		frappe.throw(_("Tối đa {0} ảnh bằng chứng mỗi lần giao.").format(MAX_PHOTOS))
+	_normalise_total(data, photos)
 
 	doc = frappe.get_doc(
 		{
@@ -237,7 +302,13 @@ def confirm_delivery(payload=None):
 
 @frappe.whitelist()
 def driver_deliveries(limit=50):
-	"""Submitted orders the driver may deliver, with the confirmation state."""
+	"""Submitted orders the driver may deliver, with the confirmation state.
+
+	OPEN QUESTION (flagged for the owner, not decided by the agent): there is no
+	per-driver assignment field yet, so EVERY Driver account sees EVERY
+	outstanding order. Fine for a single-dealer pilot, but it is a data-exposure
+	boundary that needs an owner decision before more drivers exist.
+	"""
 	_require_delivery_role()
 	limit = min(int(limit or 50), 200)
 
@@ -255,7 +326,16 @@ def driver_deliveries(limit=50):
 		fields=["name", "sales_order", "status", "pending_owner_approval", "confirmation_method"],
 		limit_page_length=0,
 	)
-	by_order = {row.sales_order: row for row in confirmations}
+	# A rejected confirmation may be followed by a re-filed one for the SAME order
+	# (`_one_live_confirmation_per_order` allows exactly that). A plain dict
+	# comprehension kept whichever row came back LAST, so the driver could be shown
+	# the dead rejected record and re-deliver an order that is already confirmed.
+	# Live wins; the rejected one is only the fallback for the app's "re-file" hint.
+	by_order = {}
+	for row in confirmations:
+		previous = by_order.get(row.sales_order)
+		if previous is None or (previous.status == STATUS_REJECTED and row.status != STATUS_REJECTED):
+			by_order[row.sales_order] = row
 
 	rows = []
 	for order in orders:
@@ -307,17 +387,40 @@ def pending_delivery_approvals(limit=50):
 
 @frappe.whitelist(methods=["POST"])
 def approve_delivery(name=None):
+	"""Owner accepts a provisional (Photo Only) delivery.
+
+	Only a PROVISIONAL record can be approved: a rejected one must be re-filed by
+	the driver (otherwise an approval would silently resurrect a delivery the
+	owner already disputed), and an already-final one is returned as-is so a
+	double tap is harmless.
+	"""
 	_require_manager()
 	if not name:
 		frappe.throw(_("Thiếu tên xác nhận giao hàng."))
 	doc = frappe.get_doc("Delivery Confirmation", name)
+	if doc.status == "Bị từ chối":
+		frappe.throw(
+			_("Xác nhận {0} đã bị từ chối - tài xế phải xác nhận lại, không duyệt lại được.").format(name)
+		)
+	if not doc.pending_owner_approval:
+		return _summary(doc)  # already final: nothing to do, no state change
 	return _summary(doc.apply_owner_decision(approve=True))
 
 
 @frappe.whitelist(methods=["POST"])
 def reject_delivery(name=None, reason=None):
+	"""Owner rejects a provisional delivery (reason mandatory)."""
 	_require_manager()
 	if not name:
 		frappe.throw(_("Thiếu tên xác nhận giao hàng."))
 	doc = frappe.get_doc("Delivery Confirmation", name)
+	if doc.status == STATUS_REJECTED:
+		# A retry (double tap / dropped link) must not raise at the owner: the
+		# delivery is already rejected, which is what they wanted. Mirrors
+		# approve_delivery's no-op behaviour.
+		return _summary(doc)
+	if not doc.pending_owner_approval:
+		frappe.throw(
+			_("Chỉ từ chối được xác nhận đang chờ duyệt (trạng thái hiện tại: {0}).").format(doc.status)
+		)
 	return _summary(doc.apply_owner_decision(approve=False, reason=reason))

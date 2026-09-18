@@ -25,6 +25,16 @@ here instead of on a driver's phone.
       stores it
   T10 GPS coordinates are recorded on the OTP path too (recorded, not required)
   T11 a DRAFT order cannot be confirmed (nothing delivered before approval)
+  T12 malformed photo payloads (dict entry / `photos` not a list) are refused by
+      NAME - not by an unhandled TypeError deep inside len()/strip()
+  T12 also covers the ERROR paths of the image normaliser (bad base64, and a
+      `data:` URI that must still be accepted) - those branches only run when a
+      payload is wrong, so they hid an UnboundLocalError that turned every
+      refusal into a 500 while the happy path stayed green
+  T13 the size backstops really fire: one oversized image, and a batch that is
+      under the per-image cap but over the total cap
+  T14 after a rejection is re-filed, `driver_deliveries` reports the LIVE
+      confirmation instead of the dead rejected one
 
 Fixtures: customer + submitted Sales Order under the P2-DELIVERY-ACCEPT prefix,
 plus two acceptance-only accounts (Driver, Manager). `run()`/`debug()` clean up
@@ -40,6 +50,7 @@ import frappe
 from feed_dealer.api import (
 	approve_delivery,
 	confirm_delivery,
+	driver_deliveries,
 	pending_delivery_approvals,
 	reject_delivery,
 )
@@ -345,17 +356,32 @@ def _t8_second_confirmation_refused(report):
 
 
 def _t9_owner_decision(report):
-	order = _order(_customer("APPROVE"), 100_000, submit=True)
+	# Two separate provisional deliveries: an owner decision is only valid on a
+	# record that is still PENDING, so approving one and then rejecting the same
+	# one is no longer a legal sequence (and the guard now says so).
+	to_approve = _order(_customer("APPROVE"), 100_000, submit=True)
+	to_reject = _order(_customer("REJECT"), 100_000, submit=True)
 	with _As(DRIVER_EMAIL):
 		created = confirm_delivery(
 			_payload(
-				order,
+				to_approve,
 				_key("approve"),
 				"Signature",
 				signature_png=PNG_1PX,
 				no_otp_reason="khách ký tay",
 				gps_latitude=10.5,
 				gps_longitude=106.5,
+			)
+		)
+		pending = confirm_delivery(
+			_payload(
+				to_reject,
+				_key("reject"),
+				"Signature",
+				signature_png=PNG_1PX,
+				no_otp_reason="khách ký tay",
+				gps_latitude=10.6,
+				gps_longitude=106.6,
 			)
 		)
 
@@ -373,17 +399,31 @@ def _t9_owner_decision(report):
 			raise AssertionError(f"approver not recorded: {doc.approved_by} / {doc.approved_at}")
 		return f"approved_by={doc.approved_by}"
 
+	def double_approve_is_noop():
+		with _As(MANAGER_EMAIL):
+			second = approve_delivery(created["name"])
+		doc = frappe.get_doc("Delivery Confirmation", created["name"])
+		if doc.status != "Giao thành công" or doc.pending_owner_approval:
+			raise AssertionError(f"second approve changed state: {doc.status} / {doc.pending_owner_approval}")
+		return f"still {second['status']}, no state change"
+
 	def reject_without_reason():
 		with _As(MANAGER_EMAIL):
-			reject_delivery(created["name"], reason="  ")
+			reject_delivery(pending["name"], reason="  ")
 
 	def reject_with_reason():
 		with _As(MANAGER_EMAIL):
-			reject_delivery(created["name"], reason="ảnh không thấy hàng")
-		doc = frappe.get_doc("Delivery Confirmation", created["name"])
+			reject_delivery(pending["name"], reason="ảnh không thấy hàng")
+		doc = frappe.get_doc("Delivery Confirmation", pending["name"])
 		if doc.status != "Bị từ chối" or not doc.reject_reason or doc.pending_owner_approval:
 			raise AssertionError(f"reject not stored: {doc.status} / {doc.reject_reason!r}")
 		return f"status={doc.status} reason={doc.reject_reason!r}"
+
+	def reject_after_decision_refused():
+		# The approved one is final: rejecting it later must be refused, not silently
+		# flip a delivery the owner already accepted.
+		with _As(MANAGER_EMAIL):
+			reject_delivery(created["name"], reason="đổi ý")
 
 	def pending_list_visible():
 		# A fresh provisional delivery must show up in the owner's queue.
@@ -403,8 +443,8 @@ def _t9_owner_decision(report):
 		with _As(MANAGER_EMAIL):
 			rows = pending_delivery_approvals()
 		names = [row["name"] for row in rows]
-		if created["name"] in names:
-			raise AssertionError("a rejected delivery is still in the pending queue")
+		if created["name"] in names or pending["name"] in names:
+			raise AssertionError("a decided delivery is still in the pending queue")
 		if not any(row["sales_order"] == other.name for row in rows):
 			raise AssertionError("the provisional delivery is missing from the owner queue")
 		return f"queue has {len(rows)} provisional row(s)"
@@ -414,12 +454,29 @@ def _t9_owner_decision(report):
 		lambda: _reject(driver_cannot_approve, "Chỉ chủ đại lý"),
 	)
 	report.check("T9b Manager approve clears pending + records approver", manager_approves)
+	report.check("T9b2 approve again is a no-op", double_approve_is_noop)
 	report.check(
 		"T9c reject without a reason -> refused",
 		lambda: _reject(reject_without_reason, "phải ghi lý do"),
 	)
 	report.check("T9d reject with a reason stores it", reject_with_reason)
-	report.check("T9e owner queue shows provisional deliveries", pending_list_visible)
+
+	def reject_again_is_noop():
+		# Same retry rule as approve: a double tap must not raise, and must not
+		# overwrite the reason that was actually recorded.
+		with _As(MANAGER_EMAIL):
+			second = reject_delivery(pending["name"], reason="lần 2")
+		doc = frappe.get_doc("Delivery Confirmation", pending["name"])
+		if doc.status != "Bị từ chối" or doc.reject_reason != "ảnh không thấy hàng":
+			raise AssertionError(f"second reject changed it: {doc.status} / {doc.reject_reason!r}")
+		return f"still {second['status']}, reason unchanged"
+
+	report.check("T9d2 reject again is a no-op", reject_again_is_noop)
+	report.check(
+		"T9e reject an already-decided delivery -> refused",
+		lambda: _reject(reject_after_decision_refused, "Chỉ từ chối được xác nhận đang chờ duyệt"),
+	)
+	report.check("T9f owner queue shows provisional deliveries", pending_list_visible)
 
 
 def _t10_gps_recorded_on_otp(report):
@@ -458,6 +515,200 @@ def _t11_draft_order_refused(report):
 	)
 
 
+def _t12_malformed_photos(report):
+	"""Raw client input must be refused by NAME, never by a Python crash.
+
+	Before this guard a dict entry reached `len()`/`str.strip()` and surfaced as an
+	unhandled AttributeError/TypeError - a 500 the app can only render as "lỗi máy
+	chủ", with no hint for the driver.
+	"""
+	dict_photo = _order(_customer("BADPHOTO"), 100_000, submit=True)
+	string_photos = _order(_customer("BADLIST"), 100_000, submit=True)
+
+	def photo_is_a_dict():
+		with _As(DRIVER_EMAIL):
+			confirm_delivery(
+				_payload(
+					dict_photo,
+					_key("dictphoto"),
+					"Photo Only — Needs Approval",
+					no_otp_reason="khách không nghe máy",
+					gps_latitude=10.1,
+					gps_longitude=106.1,
+					photos=[{"image": PNG_1PX}],
+				)
+			)
+
+	def photos_is_a_string():
+		with _As(DRIVER_EMAIL):
+			confirm_delivery(
+				_payload(
+					string_photos,
+					_key("strphotos"),
+					"Photo Only — Needs Approval",
+					no_otp_reason="khách không nghe máy",
+					gps_latitude=10.1,
+					gps_longitude=106.1,
+					photos=PNG_1PX,
+				)
+			)
+
+	bad_base64 = _order(_customer("BADB64"), 100_000, submit=True)
+
+	def photo_is_not_base64():
+		# This is the branch that used to answer with UnboundLocalError (a 500):
+		# the message itself needs `_()`, which a stray `_, _ = ...` unpack had
+		# shadowed inside the same function.
+		with _As(DRIVER_EMAIL):
+			confirm_delivery(
+				_payload(
+					bad_base64,
+					_key("badb64"),
+					"Photo Only — Needs Approval",
+					no_otp_reason="khách không nghe máy",
+					gps_latitude=10.1,
+					gps_longitude=106.1,
+					photos=["day-khong-phai-base64!!"],
+				)
+			)
+
+	report.check(
+		"T12a a photo entry that is not base64 text -> refused by name",
+		lambda: _reject(photo_is_a_dict, "phải là chuỗi base64", dict_photo),
+	)
+	report.check(
+		"T12b `photos` that is not a list -> refused by name",
+		lambda: _reject(photos_is_a_string, "phải là danh sách ảnh", string_photos),
+	)
+	report.check(
+		"T12c garbage base64 -> the refusal MESSAGE itself renders (no 500)",
+		lambda: _reject(photo_is_not_base64, "không phải base64 hợp lệ", bad_base64),
+	)
+
+	data_uri = _order(_customer("DATAURI"), 100_000, submit=True)
+
+	def photo_as_data_uri():
+		# The `data:image/png;base64,` prefix must be stripped, not rejected.
+		with _As(DRIVER_EMAIL):
+			return confirm_delivery(
+				_payload(
+					data_uri,
+					_key("datauri"),
+					"Photo Only — Needs Approval",
+					no_otp_reason="khách không nghe máy",
+					gps_latitude=10.15,
+					gps_longitude=106.15,
+					photos=[f"data:image/png;base64,{PNG_1PX}"],
+				)
+			)
+
+	def data_uri_accepted():
+		result = photo_as_data_uri()
+		doc = frappe.get_doc("Delivery Confirmation", result["name"])
+		if doc.status != "Giao thành công tạm" or not doc.proof_photos:
+			raise AssertionError(f"data URI photo not stored: {doc.status}")
+		return f"{doc.name} photo={doc.proof_photos[0].image}"
+
+	report.check("T12d a `data:` URI photo is stripped and accepted", data_uri_accepted)
+
+
+def _t13_size_caps(report):
+	"""Prove the two size backstops FIRE (the app compresses; this is the net).
+
+	Sizes are built from real bytes so the numbers in the messages are measured,
+	not asserted from the constants.
+	"""
+	one_big = base64.b64encode(b"\x00" * (1700 * 1024)).decode()
+	many_medium = [base64.b64encode(b"\x00" * (1300 * 1024)).decode() for _ in range(6)]
+	oversized = _order(_customer("BIGIMG"), 100_000, submit=True)
+	batch_too_big = _order(_customer("BIGBATCH"), 100_000, submit=True)
+
+	def single_too_large():
+		with _As(DRIVER_EMAIL):
+			confirm_delivery(
+				_payload(
+					oversized,
+					_key("bigimg"),
+					"Photo Only — Needs Approval",
+					no_otp_reason="khách không nghe máy",
+					gps_latitude=10.2,
+					gps_longitude=106.2,
+					photos=[one_big],
+				)
+			)
+
+	def batch_too_large():
+		with _As(DRIVER_EMAIL):
+			confirm_delivery(
+				_payload(
+					batch_too_big,
+					_key("bigbatch"),
+					"Photo Only — Needs Approval",
+					no_otp_reason="khách không nghe máy",
+					gps_latitude=10.3,
+					gps_longitude=106.3,
+					photos=many_medium,
+				)
+			)
+
+	report.check(
+		"T13a one image over the 1.5 MB cap -> refused, nothing left behind",
+		lambda: _reject(single_too_large, "1.5 MB", oversized),
+	)
+	report.check(
+		"T13b 6 x 1.3 MB images over the 6 MB total cap -> refused",
+		lambda: _reject(batch_too_large, "Tổng ảnh", batch_too_big),
+	)
+
+
+def _t14_driver_list_prefers_live(report):
+	"""A re-filed delivery must win over the rejected record it replaced."""
+	order = _order(_customer("REFILE"), 100_000, submit=True)
+	with _As(DRIVER_EMAIL):
+		first = confirm_delivery(
+			_payload(
+				order,
+				_key("refile1"),
+				"Signature",
+				signature_png=PNG_1PX,
+				no_otp_reason="khách ký tay",
+				gps_latitude=10.4,
+				gps_longitude=106.4,
+			)
+		)
+	with _As(MANAGER_EMAIL):
+		reject_delivery(first["name"], reason="ảnh mờ, giao lại")
+	with _As(DRIVER_EMAIL):
+		second = confirm_delivery(
+			_payload(
+				order,
+				_key("refile2"),
+				"Signature",
+				signature_png=PNG_1PX,
+				no_otp_reason="khách ký tay lần 2",
+				gps_latitude=10.4,
+				gps_longitude=106.4,
+			)
+		)
+		rows = driver_deliveries()
+	# `driver_deliveries` rows are Sales Orders: the key is `name`, there is no
+	# `sales_order` field on them (that one lives on Delivery Confirmation).
+	row = next((r for r in rows if r["name"] == order.name), None)
+
+	def check():
+		if row is None:
+			raise AssertionError("the order vanished from the driver's list")
+		if row["confirmation"] != second["name"]:
+			raise AssertionError(
+				f"driver is shown the dead record {row['confirmation']}, live is {second['name']}"
+		)
+		if row["confirmation_status"] == "Bị từ chối":
+			raise AssertionError("the row still reports the rejected status")
+		return f"live={row['confirmation']} status={row['confirmation_status']}"
+
+	report.check("T14 driver list shows the re-filed confirmation, not the rejected one", check)
+
+
 CHECKS = (
 	("T1", _t1_otp),
 	("T2", _t2_client_cannot_force),
@@ -470,6 +721,9 @@ CHECKS = (
 	("T9", _t9_owner_decision),
 	("T10", _t10_gps_recorded_on_otp),
 	("T11", _t11_draft_order_refused),
+	("T12", _t12_malformed_photos),
+	("T13", _t13_size_caps),
+	("T14", _t14_driver_list_prefers_live),
 )
 
 
