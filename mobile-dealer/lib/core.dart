@@ -13,15 +13,15 @@ import 'package:http/http.dart' as http;
 /// * Every create carries an idempotency key ([newIdempotencyKey]).
 final ValueNotifier<bool> isOnline = ValueNotifier<bool>(true);
 
+/// Server-side backstops from `feed_dealer.api`: the client stops earlier so a
+/// farm-network round trip is not spent on a payload the server must reject.
+const int kMaxPhotoBase64 = 1_500_000; // 1.5 MB per image (decoded)
+const int kMaxPhotos = 6;
+
 int _idemSeq = 0;
 
 /// Stable per logical operation: the caller computes it once when the op is
 /// created and stores it with the queued row (never per retry).
-/** Server-side backstops from `feed_dealer.api`; the client stops earlier so a
- * farm-network round trip is not spent on a payload the server must reject. */
-const int kMaxPhotoBase64 = 1_500_000; // 1.5 MB per image (decoded)
-const int kMaxPhotos = 6;
-
 String newIdempotencyKey() {
   _idemSeq += 1;
   return 'mob-${DateTime.now().toUtc().microsecondsSinceEpoch}-$_idemSeq';
@@ -300,18 +300,25 @@ class ErpClient {
     double? gpsLongitude,
     String? notes,
   }) async {
+    // Built by mutation, not with collection-`if`: an absent value must be truly
+    // ABSENT (never an empty string the server has to special-case), and the
+    // analyzer's `use_null_aware_elements` rule rejects the inline form.
     final payload = <String, dynamic>{
       'sales_order': salesOrder,
       'confirmation_method': method,
       'idempotency_key': idempotencyKey,
-      if (otpCode != null && otpCode.isNotEmpty) 'otp_code': otpCode,
-      if (noOtpReason != null && noOtpReason.isNotEmpty) 'no_otp_reason': noOtpReason,
-      if (signaturePng != null && signaturePng.isNotEmpty) 'signature_png': signaturePng,
-      if (photos.isNotEmpty) 'photos': photos,
-      if (gpsLatitude != null) 'gps_latitude': gpsLatitude,
-      if (gpsLongitude != null) 'gps_longitude': gpsLongitude,
-      if (notes != null && notes.isNotEmpty) 'notes': notes,
     };
+    void put(String key, String? value) {
+      if (value != null && value.isNotEmpty) payload[key] = value;
+    }
+
+    put('otp_code', otpCode);
+    put('no_otp_reason', noOtpReason);
+    put('signature_png', signaturePng);
+    put('notes', notes);
+    if (photos.isNotEmpty) payload['photos'] = photos;
+    if (gpsLatitude != null) payload['gps_latitude'] = gpsLatitude;
+    if (gpsLongitude != null) payload['gps_longitude'] = gpsLongitude;
     final res = await _http
         .post(
           Uri.parse('$baseUrl/api/method/feed_dealer.api.confirm_delivery'),
