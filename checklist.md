@@ -118,9 +118,16 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
       không keystore/EAS → **GREEN run 6** (`35299833093`), artifact `camviet-debug-apk` ~72 MB
 - [x] Test accounts + role Driver sẵn sàng (mục B0)
 - [x] Mốc 1: scaffold + login REST + multi-role switcher — DONE (commit `d793c64`, review-fix `01c343f`,
-      APK đã tải về `dist/app-debug.apk` commit `01c343f`); Settings + auto-login (Mốc 1.5) đã code,
-      chờ CI xác nhận; HTTPS-guard + widget test thật cho `_bootstrap()` đang vá (2026-09-18)
-- [ ] Mốc 2: Owner dashboard (khách/lứa/nợ/duyệt SO) — online-only trước
+      APK đã tải về `dist/app-debug.apk` commit `01c343f`)
+- [x] Mốc 1.5: Settings + auto-login (Keystore) — DONE 2026-09-18: HTTPS-guard có test chứng minh
+      (chặn cả ở tầng URL lẫn tầng login, ngoại lệ loopback chỉ trong `kDebugMode`), test server-wins
+      viết lại thành **widget test thật** trên `_bootstrap()`, vá 3 lỗi CI bắt được (thiếu dep
+      `flutter_secure_storage`, key `token_pair` không writer nào tạo → auto-login token chết,
+      fallback token không ghép lại `user:password`). Commit `c70a92c` → `d4a8008`
+- [x] Mốc 2: Owner dashboard (khách/lứa/nợ/duyệt SO) — DONE 2026-09-18 (commit `c70a92c`, CI xanh
+      `35306182930`: 35 test PASS + artifact `camviet-debug-apk` 79 MB). Duyệt SO qua REST PUT
+      `docstatus=1` → hook hạn mức phía server vẫn chạy, bị từ chối thì hiện message server
+      (server-wins, không force). Chờ chủ dự án review trước Mốc 3.
 - [ ] Mốc 3: Driver flow (giao hàng, OTP/chữ ký/ảnh/GPS)
 - [ ] Mốc 4: Offline queue + idempotency_key cho create được phép offline
 - [ ] Mốc 5: Guard cứng — nút thu tiền/đổi hạn mức KHÔNG THẤY (không phải disable mờ) khi offline

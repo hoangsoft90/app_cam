@@ -404,3 +404,27 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   gọi qua `_bootstrap()` thật — sửa sai `_bootstrap()` sau này sẽ đỏ.
 - **Docs:** checklist C2 Mốc 1 → `[x]` kèm hash; next.md thêm mục P2 (repo link + chính sách
   build-qua-GH-Actions + trạng thái Mốc 1).
+
+## [2026-09-18 04:18 UTC] Mốc 2 Owner dashboard — DONE, CI xanh 35 test + APK; kèm 5 lỗi CI bắt được
+- **Mốc 2 (commit `c70a92c`):** `owner_dashboard.dart` — khách/lứa/nợ (Chưa trả/Một phần/Quá hạn,
+  còn lại = outstanding_amount) + **duyệt SO nháp** qua REST `PUT /api/resource/Sales Order/<name>`
+  body `{"docstatus":1}`. Duyệt là thao tác tài chính → có dialog xác nhận + `FinancialAction.guard()`;
+  hook hạn mức phía server vẫn chạy, bị từ chối thì hiện đúng message server (`_server_messages`)
+  và đơn **giữ nguyên nháp** — server-wins, không force. Online-only (offline queue để Mốc 4).
+- **core.dart thêm:** `getList()` (dựng query bằng mutation — vắng là vắng thật, không lọt chuỗi
+  "null" vào order_by), `submitDoc()` + `SubmitRejected` (bóc message từ `_server_messages`), `vnd()`.
+- **5 lỗi do CI bắt (không có analyzer local — CI chính là compiler):** (1) `ValueNotifier` bị
+  `show kDebugMode` khoá ngoài; (2) dòng 2 của doc comment thiếu `///` → parse error; (3)
+  `restore_session.dart` dùng `http.Client` mà thiếu import; (4) mock test `http.Response(String)`
+  dùng latin-1 → chữ Việt ("Vũ", "Hạn mức…") nổ; (5) `setMockInitialValues(const {})` là map
+  immutable → mọi lệnh ghi Keystore trong test nổ. Cộng thêm 6 lint info và 1 regression hành vi:
+  refactor Mốc 1.5 làm nhánh fallback token gửi `token <password>` thay vì `token <user>:<password>`.
+- **Lỗ hổng do review tay bắt:** `FinancialAction.guard()` ném `StateError` (là `Error`) nên
+  `on Exception` KHÔNG bắt → bấm Duyệt khi offline crash. Đã thêm `on StateError` + test khẳng định
+  không request nào rời máy khi offline.
+- **Bằng chứng:** CI run `35306182930` **success** — `35 tests passed` (gồm 4 widget test thật:
+  3 `HomeScreen._bootstrap()` + 5 `OwnerDashboardScreen`, 4 `restoreSession`) và APK debug
+  `camviet-debug-apk` **79.048.216 B**. Vòng đỏ trước đó: run `35304200335` (compile), `35304365677`
+  (info), `35304553943` (4 test), `35304846286` (4 test) — mỗi vòng một nguyên nhân, đọc từ log.
+- Quyết định: repo **PUBLIC** là chủ đích của chủ dự án (xác nhận trực tiếp) — ghi vết, không đổi.
+- DỪNG theo mốc: chờ review Mốc 2 trước khi làm Mốc 3 (Driver flow: giao hàng + OTP/chữ ký/ảnh/GPS).

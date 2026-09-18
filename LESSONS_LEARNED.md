@@ -242,6 +242,16 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
 
 60. **Flutter android template .gitignore exclude gradlew + gradlew là project root theo CWD — 3 bẫy path khi build gradle trực tiếp trên CI.** Đo 2026-09-18 (run 3→6): (1) phải track `gradlew`/`gradlew.bat`/`gradle-wrapper.jar` vì template .gitignore đang exclude; (2) `defaults.run.working-directory` áp cho MỌI step → `./gradlew` sai tầng; (3) gradlew lấy CWD làm root — phải chạy TỪ `mobile/android/` (nơi có settings.gradle.kts). Bonus: `flutter analyze` exit 1 cả với lint INFO; jobs-log endpoint có lúc trả rỗng → dùng zip run logs.
 
+61. **`http.Response(String)` của Dart dùng latin-1 — chữ Việt làm nổ `Invalid argument (string): Contains invalid characters`.** Đo trên CI 2026-09-18: mọi test mock trả payload có "Vũ"/"Hạn mức…" đều chết ngay trong handler, và vì handler ném ra ngoài nên test thật bại với thông báo lệch hướng (như "Actual: <Instance of Future<void>>"). Dùng `http.Response.bytes(utf8.encode(jsonEncode(body)), status, headers: {'content-type': 'application/json; charset=utf-8'})`. Dấu hiệu: test đỏ ở chỗ không liên quan tới logic đang test.
+
+62. **`FlutterSecureStorage.setMockInitialValues(const {...})` → mọi lệnh GHI nổ `Cannot modify unmodifiable map`.** Map literal `const` là immutable, mà plugin ghi thẳng vào chính map được đưa. Truyền map mutable (`<String, String>{...}`). Insight tổng quát: helper mock nhận container từ caller thì phải truyền container ghi được — đừng dùng `const` cho dữ liệu test sẽ bị mutate.
+
+63. **`FinancialAction.guard()` ném `StateError` — là `Error`, KHÔNG phải `Exception`, nên `on Exception` không bắt được.** Đo 2026-09-18 (review Mốc 2): bấm "Duyệt" khi offline → `StateError` xuyên qua 2 clause `on SubmitRejected`/`on Exception` → crash app. Quy tắc: mỗi guard ném `Error` phải có clause riêng (`on StateError`) hoặc chặn trước khi gọi; và phải có test khẳng định **không có request nào rời máy** khi offline.
+
+64. **Refactor tách file dễ làm lệch NGẦM hành vi — test cũ là thứ duy nhất bắt được.** Đo 2026-09-18: khi tách `main.dart` → `core.dart` (Mốc 1.5), nhánh fallback token bị đổi từ `pair: '$user:$password'` (owner nhập api_key ở ô user, api_secret ở ô password) thành `pair: password` → hỏng hẳn đường đăng nhập token. CI bắt được vì test Mốc 1 vẫn còn nguyên. Ngược lại, code Mốc 1.5chưa từng chạy CI (`pubspec` thiếu `flutter_secure_storage`, `restore_session.dart` đọc key `token_pair` mà không writer nào tạo) — nghĩa là **file mới chưa push = chưa từng được biên dịch**. Kỷ luật: push sớm để CI làm compiler, và giữ nguyên test hành vi xuyên refactor.
+
+65. **`Uri.queryParameters` với giá trị null không đáng tin như một số tài liệu gợi ý — dựng tham số bằng mutation.** Đo 2026-09-18: map literal có `if (x != null)` vừa bị lint `use_null_aware_elements`, vừa dễ lọt chuỗi `"null"` vào `order_by` (frappe đưa thẳng vào SQL ORDER BY). Cách an toàn: tạo `Map<String, String>` rồi `if (filters != null) query['filters'] = ...` — vắng nghĩa là vắng thật.
+
 ---
 
 ## Quy tắc mang đi (tóm tắt 1 dòng mỗi bài)
