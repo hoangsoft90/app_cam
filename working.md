@@ -350,3 +350,4 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   Fix bền (rebuild frontend image / volume dùng chung) cần quyết định của chủ infra.
 - Bài học 57 (role_name vs role), 58 (frappe_docker assets split) + skill §4 cập nhật.
 - Treo mới: không. Treo cũ: P1E BLOCKED chờ sandbox; go-live checklist tài khoản thật.
+- Commits: `6981fcc` (P1G/P2 perf + test accounts) → `adde787` (icon + Cám Việt + branding).

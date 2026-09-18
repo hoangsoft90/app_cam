@@ -60,7 +60,8 @@ Status: DONE
 
 ## Commit
 
-(dán git log -1 sau khi commit — xem working.md)
+- 6981fcc1ae22fcb8f6595c9b1e178a39dd7965d6 feat(P1G/P2): perf smoke 2000-invoice + Driver role & throwaway test accounts
+- adde78722a9bfefc56db071fd785dca8778e50df feat(branding): app icon set + rename app title to Cám Việt + website settings favicon/logo
 
 ## Treo / phụ thuộc bên ngoài
 
