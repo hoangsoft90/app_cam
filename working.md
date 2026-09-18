@@ -4,6 +4,39 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 
 ## Đang làm
 
+- [2026-09-18] **P2 Mốc 4 — Offline queue + sync engine + conflict log. ĐÃ TEST trên CI, ĐÃ COMMIT**
+  — hash dán nguyên văn từ `git log -1 --format='%H %s'`:
+  ```
+  dde05c773fc9650b139b5c53905fa84e1c024044 fix(P2-M4): pump a frame before asserting the offline button label
+  ```
+  File mới: `lib/offline_queue.dart` (model + hàng đợi + flush) và `lib/queue_screen.dart` (UI).
+  **Quyết định tự chốt (ghi lý do theo yêu cầu "tự quyết − an toàn nhất"):**
+  1. **`isOnline` suy ra từ kết quả request thật**, KHÔNG dùng `connectivity_plus`. Lý do: probe interface
+     chỉ nói "có wifi", còn chuồng trại có router nhưng mất uplink thì nó vẫn báo xanh — và app sẽ cho
+     tài xế gửi xác nhận trong khi tiền/hàng không lên được. Mọi round trip đi qua `ErpClient._track`:
+     lỗi transport ⇒ `OfflineFailure` + cờ tắt; có phản hồi ⇒ cờ bật.
+  2. **Chỉ `delivery_confirm` nằm trong `kQueueableOperations`** (whitelist, không blacklist). Thao tác
+     khác bị `QueueRejected` ở cửa vào, nên một lần viết ẩu sau này cũng không đẩy được Payment/hạn mức
+     vào hàng đợi.
+  3. **Payload bị server TỪ CHỐI thì KHÔNG xếp hàng** (chỉ lỗi mất mạng mới xếp) — quyết định đã có thì
+     không lặp lại; và cũng không có nút "thử lại" cho row `conflict`, chỉ có "Bỏ" + hướng dẫn giao lại.
+  4. **401 ≠ từ chối**: row giữ nguyên, cờ `needsLogin` bật, sync dừng — đúng test case §7.2 của phase.
+  5. Lưu hàng đợi trong **SharedPreferences** (không thêm sqflite/drift) + **cap theo bằng chứng**
+     (`kMaxQueuedPayloadChars` ~3 MB/row, tối đa 50 row): vượt ngưỡng thì báo rõ cho tài xế thay vì để
+     một lần sync treo. Đây là đánh đổi có chủ đích — ghi lại để người sau biết đã cân nhắc.
+  6. Timer gửi lại **chỉ chạy khi đang offline VÀ có row chờ** (30s/lần) — không giữ máy thức vô ích,
+     và cũng là điều kiện để widget test không kết thúc với timer sống.
+  Bằng chứng CI (số lấy từ GitHub API): run `35320908195` **success** — `No issues found` (analyze),
+  `50 tests passed` (Mốc 3 là 40; +10 test mới cho Mốc 4), artifact `camviet-debug-apk`
+  **80.704.960 B**, `BUILD SUCCESSFUL in 3m 38s`.
+  Lỗi tự gây trong lượt này (đều do CI bắt, đã sửa): lint `prefer_initializing_formals` (Dart không cho
+  tham số named bắt đầu bằng `_`) ⇒ đổi field thành public `prefs`/`send`; và **assert `Lưu chờ gửi`
+  trước khi `pump()`** — nhãn nút nằm trong `ValueListenableBuilder` nên chỉ đổi ở frame kế tiếp.
+  Việc còn treo nêu rõ: **Mốc 4 chưa được test trên máy thật với sóng yếu** (máy này không còn công cụ
+  Android — build chỉ qua GH Actions); phần chứng minh hiện tại là unit/widget test + acceptance phía
+  server. Ngoài ra phần **tạo Batch draft offline** (§18) chưa làm — chỉ `delivery_confirm` được xếp
+  hàng ở lượt này, các thao tác khác sẽ thêm vào whitelist khi làm tới.
+
 - [2026-09-18] **P2 Mốc 3 — Driver UI + hợp đồng API cho UI. ĐÃ TEST trên site thật (clear-cache
   trước khi chạy), ĐÃ COMMIT** — hash dán nguyên văn từ `git log -1 --format='%H %s'`:
   ```

@@ -549,3 +549,27 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
     ĐẦU TIÊN khi vượt ngưỡng, mà triệu chứng chỉ là `next(...) -> None`. Test hợp đồng kiểu này phải
     (a) gọi sát cap (`limit=200`) và (b) đưa **số dòng nhận được** vào câu lỗi — nếu không, người
     debug sau sẽ đi tìm lỗi phân quyền/điều kiện lọc trong khi thật ra chỉ là phân trang.
+82. **Đổi một notifier toàn cục trong test thì phải `pump()` một frame trước khi assert nhãn UI.**
+    Ca thật (Mốc 4): nút đổi nhãn theo `isOnline` qua `ValueListenableBuilder`; test set
+    `isOnline.value = false` rồi `expect(find.text('Lưu chờ gửi'))` ngay ⇒ đỏ trên CI với "Found 0
+    widgets". Widget không sai — bài test đọc frame CŨ. Rule: sau mọi thay đổi state ngoài widget
+    (`ValueNotifier`, `ChangeNotifier` toàn cục, stream) phải `await tester.pump()` trước khi khẳng
+    định giao diện.
+83. **Dart KHÔNG có named parameter bắt đầu bằng `_` — và lint coi đây là lỗi CI.**
+    `OfflineQueue({required SharedPreferences prefs, ...}) : _prefs = prefs` bị
+    `prefer_initializing_formals` chặn (dự án này để warning/info thành fail). Cách sửa rẻ nhất: để
+    field ở dạng public (`this.prefs`) thay vì cố giữ private + tham số cùng tên.
+84. **Thêm method vòng đời vào một widget ĐÃ CÓ thì phải grep trước: tôi tự tạo `initState` thứ hai.**
+    Chèn `initState` khi class đã có `initState` ⇒ 2 override trong cùng class, code sau"che" code trước
+    (bootstrap cũ ngừng chạy mà không có cảnh báo nào ở tầng logic). Bắt buộc: `grep -n "initState\|dispose"`
+    trên file trước khi thêm, đúng như cách đã phải làm với `api.py` ở các lượt trước.
+85. **Hàng đợi ngoại tuyến: quyết định "cái gì được xếp hàng" phải là WHITELIST, không phải blacklist.**
+    Thiết kế Mốc 4: một Set các operation được phép (`{delivery_confirm}`) kiểm ở cửa vào `enqueue()`,
+    nên một thao tác tài chính thêm nhầm sau này cũng bị `QueueRejected` ngay. Kèm 2 luật nữa đã cài
+    bằng code (không phải comment): (a) payload bị server TỪ CHỐI thì không bao giờ xếp hàng — quyết
+    định đã có rồi; (b) lỗi 401 KHÔNG phải từ chối — row giữ nguyên + đòi đăng nhập lại.
+86. **"Mất mạng" không suy ra được từ trạng thái interface — chỉ suy ra được từ kết quả request.**
+    Không dùng package connectivity: nó báo "wifi đang bật" trong khi uplink chết (đúng cảnh chuồng
+    trại có router nhưng không ra internet). Cài bằng cách cho MỌI round trip đi qua một hàm bọc duy
+    nhất, hàm này bật/tắt cờ và ném một exception RIÊNG (`OfflineFailure`) — nhờ vậy tầng trên phân
+    biệt được "chưa tới server" (được phép xếp hàng) với "server đã trả lời và từ chối" (cấm xếp hàng).

@@ -151,8 +151,27 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
             Manager duyệt); OTP = final → DN ngay. Khớp code hiện tại, UI Driver ghi rõ cho tài xế.
       - [x] Cần chủ dự án quyết: gửi OTP qua SMS → chốt 2026-09-18: **BLOCKED** (không có provider),
             giữ nhập OTP tay + nhánh Signature/Photo
-- [ ] Mốc 4: Offline queue + idempotency_key cho create được phép offline
+- [x] Mốc 4: Offline queue + idempotency_key cho create được phép offline — **DONE 2026-09-18**
+      (`mobile-dealer/lib/offline_queue.dart` + `queue_screen.dart`). Hàng đợi lưu trong
+      SharedPreferences, đúng 10 field theo `phase_02_internal_mobile.md` §17 (`id, operation, entity,
+      entity_id, payload, created_at, retry_count, status, idempotency_key, last_error`).
+      **CHỈ `delivery_confirm` được xếp hàng** (`kQueueableOperations` là whitelist — thao tác khác bị
+      `QueueRejected`, nên thu tiền/đổi hạn mức/submit SI không thể lọt vào hàng đợi cả khi code sau
+      này viết sai); `isOnline` bỏ dev toggle → **suy ra từ kết quả request thật** (một interface-probe
+      sẽ báo "có wifi" ở chuồng trại có router nhưng mất uplink). Server-wins: payload bị server TỪ CHỐI
+      không bao giờ được tự gửi lại → thành `conflict` + giữ nguyên câu thông báo của server; 401
+      (`AuthExpired`) thì GIỮ row và yêu cầu đăng nhập lại, không đánh dấu chết.
+      CI `35320908195` **success**: `No issues found` (analyze) + `50 tests passed` (+10 test Mốc 4,
+      trước là 40) + artifact `camviet-debug-apk` 80.704.960 B (`BUILD SUCCESSFUL in 3m 38s`).
+      Commit `882fa0b` → `0bb7054` → `dde05c7`.
+      - [x] Acceptance #5 (offline confirm → sync khi có mạng, không trùng): key sinh 1 lần trong sheet,
+            row giữ nguyên key đó khi replay; **3 lớp chống trùng** — client từ chối xếp cùng đơn 2 lần,
+            cùng key khi gửi lại, và server (T7 của `p2_delivery_acceptance`) trả bản ghi đã có.
+      - [x] Acceptance #6 (offline không cho bấm Thu tiền / Đổi hạn mức): vẫn bằng guard hiện có
+            (`FinancialAction.guard()` ném lỗi khi offline); việc **ẩn hẳn khỏi cây widget** là Mốc 5.
+      - [x] Test case #2 của phase (§7): token hết hạn lúc sync → row giữ nguyên + nhắc đăng nhập lại.
 - [ ] Mốc 5: Guard cứng — nút thu tiền/đổi hạn mức KHÔNG THẤY (không phải disable mờ) khi offline
+      (nền đã có sẵn từ Mốc 4: `isOnline` giờ là tín hiệu thật, không còn toggle tay)
 - [ ] Mốc 6: test máy thật/emulator + sóng yếu + APK debug cuối cùng
 - Quy tắc xuyên suốt: KHÔNG mutation tài chính khi offline · conflict server-wins · báo cáo theo mốc
 

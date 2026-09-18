@@ -1042,6 +1042,41 @@ void main() {
       expect(second.pendingRows.single.idempotencyKey, 'k-1');
     });
 
+    test('a corrupt row is skipped instead of crashing the launch', () async {
+      // Review finding: `fromJson` on a malformed row throws a TypeError — an
+      // Error — so the launch would die rather than lose one row.
+      final prefs = await _emptyPrefs();
+      await prefs.setString(
+        app.kQueuePrefKey,
+        jsonEncode([
+          {'id': 'broken'}, // no payload, no idempotency key
+          {
+            'id': 'ok',
+            'operation': 'delivery_confirm',
+            'entity': 'Sales Order',
+            'entity_id': 'SAL-ORD-2026-00300',
+            'payload': payload,
+            'created_at': DateTime.now().toUtc().toIso8601String(),
+            'retry_count': 0,
+            'status': 'pending',
+            'idempotency_key': 'k-1',
+            'last_error': null,
+          },
+        ]),
+      );
+      final queue = app.OfflineQueue(prefs: prefs, send: (_) async => throw const app.OfflineFailure());
+      await queue.load();
+      expect(queue.pendingRows.single.idempotencyKey, 'k-1');
+    });
+
+    test('an unreadable queue is dropped, not fatal', () async {
+      final prefs = await _emptyPrefs();
+      await prefs.setString(app.kQueuePrefKey, 'không phải JSON');
+      final queue = app.OfflineQueue(prefs: prefs, send: (_) async => throw const app.OfflineFailure());
+      await queue.load();
+      expect(queue.length, 0);
+    });
+
     testWidgets('the queue screen shows the server reason and can discard the row',
         (tester) async {
       final queue = app.OfflineQueue(

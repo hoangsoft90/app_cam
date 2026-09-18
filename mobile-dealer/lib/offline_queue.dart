@@ -158,8 +158,6 @@ class FlushReport {
   final bool authExpired;
 
   final int attempted;
-
-  bool get nothingToSend => attempted == 0;
 }
 
 /// How the queue hands a stored payload to the server. Injected so tests drive
@@ -193,16 +191,40 @@ class OfflineQueue {
     _loaded = true;
     final raw = prefs.getString(kQueuePrefKey);
     if (raw == null || raw.isEmpty) return;
+    dynamic parsed;
     try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return;
-      _rows
-        ..clear()
-        ..addAll(decoded.whereType<Map>().map((row) => QueuedMutation.fromJson(row.cast<String, dynamic>())));
+      parsed = jsonDecode(raw);
     } on FormatException {
-      // Corrupt queue: drop it rather than crash the app on launch. Rows are
-      // re-filable by hand; a crash loop on startup is not.
+      // Unreadable queue (truncated write, hand-edited prefs): drop it rather
+      // than crash on launch. Rows are re-filable by hand; a crash loop is not.
       _rows.clear();
+      return;
+    }
+    // Shape-checked, never cast: `as List` on a non-list throws a TypeError — an
+    // Error, which `on FormatException` does not catch and which would take the
+    // whole app down on launch.
+    if (parsed is! List) {
+      _rows.clear();
+      return;
+    }
+    _rows.clear();
+    for (final entry in parsed) {
+      if (entry is! Map || !entry.keys.every((k) => k is String)) continue;
+      final row = entry.cast<String, dynamic>();
+      // Validate the shape BEFORE constructing: `fromJson` on a malformed row
+      // throws a TypeError (an Error, not an Exception) and would take the whole
+      // app down on launch. Skip the bad row, keep the good ones.
+      if (row['id'] is! String ||
+          row['operation'] is! String ||
+          row['idempotency_key'] is! String ||
+          row['payload'] is! Map) {
+        continue;
+      }
+      try {
+        _rows.add(QueuedMutation.fromJson(row));
+      } on FormatException {
+        continue; // bad `created_at`
+      }
     }
   }
 
@@ -244,7 +266,7 @@ class OfflineQueue {
     if (duplicate) {
       throw const QueueRejected('Đơn này đã nằm trong hàng đợi chờ gửi.');
     }
-    if (row.status == kQueuedPending && _rows.where((r) => r.isPending).length >= kMaxQueuedRows) {
+    if (_rows.where((r) => r.isPending).length >= kMaxQueuedRows) {
       throw const QueueRejected('Hàng đợi đã đầy — cần có mạng để gửi bớt trước khi thêm.');
     }
     if (jsonEncode(row.payload).length > kMaxQueuedPayloadChars) {
