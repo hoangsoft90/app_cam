@@ -45,6 +45,9 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
+      - name: Unit tests
+        run: flutter test
+
       # gradle-direct build: the Flutter gradle plugin needs to know the SDK
       # location (local.properties is machine-specific and never committed).
       - name: Write local.properties
