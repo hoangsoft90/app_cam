@@ -6,8 +6,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'core.dart';
+import 'offline_queue.dart';
 
-/// Mốc 3 — Driver flow: the orders to deliver, and the proof-of-delivery form.
+/// Mốc 3/4 — Driver flow: the orders to deliver, and the proof-of-delivery form.
 ///
 /// Business rules the UI must show honestly (owner decision 2026-09-18):
 ///   * OTP          -> FINAL. The server submits the Delivery Note immediately,
@@ -22,8 +23,11 @@ import 'core.dart';
 ///   * idempotency key generated ONCE per delivery attempt and reused on retry
 ///     (never per tap), so a dropped link cannot file two deliveries;
 ///   * server errors are shown verbatim and nothing is forced locally;
-///   * ONLINE-ONLY for now: filing a delivery moves real stock and real debt, and
-///     the offline queue is Mốc 4 — nothing here pretends to work offline.
+///   * Mốc 4: a delivery confirmation MAY be filed offline. It is not a
+///     financial mutation (no money, no credit limit) and the server still
+///     decides the outcome, so the payload goes into the offline queue with the
+///     SAME idempotency key and is replayed when the link returns. A payload the
+///     server REFUSES is never queued — that decision is already made.
 const String kMethodOtp = 'OTP';
 const String kMethodSignature = 'Signature';
 /// Exact server string (em dash included) — a mismatch is rejected by the
@@ -91,10 +95,24 @@ String _statusLabel(String? status) {
 
 /// Orders to deliver (server decides the list and the state).
 class DriverDeliveryScreen extends StatefulWidget {
-  const DriverDeliveryScreen({super.key, required this.erp, this.deps = const DeliveryDeps()});
+  const DriverDeliveryScreen({
+    super.key,
+    required this.erp,
+    this.deps = const DeliveryDeps(),
+    this.queue,
+    this.onOpenQueue,
+  });
 
   final ErpClient erp;
   final DeliveryDeps deps;
+
+  /// Mốc 4: rows filed while offline wait here. Null in tests that do not care
+  /// about queuing — then a dead link just shows an error, as before.
+  final OfflineQueue? queue;
+
+  /// Opens the queue/conflict screen. Injected so this file does not have to
+  /// know how the app navigates.
+  final VoidCallback? onOpenQueue;
 
   @override
   State<DriverDeliveryScreen> createState() => _DriverDeliveryScreenState();
@@ -141,15 +159,48 @@ class _DriverDeliveryScreenState extends State<DriverDeliveryScreen> {
     final changed = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => ConfirmDeliverySheet(erp: widget.erp, order: row, deps: widget.deps),
+      builder: (_) => ConfirmDeliverySheet(
+        erp: widget.erp,
+        order: row,
+        deps: widget.deps,
+        queue: widget.queue,
+      ),
     );
-    if (changed == true) await _refresh();
+    if (changed == true) {
+      if (mounted) setState(() {}); // the queue banner may have changed
+      await _refresh();
+    }
+  }
+
+  /// Mốc 4 — what is still owed to the server, always visible to the driver.
+  /// Blank when there is nothing waiting, so the screen never carries a
+  /// permanent "0 items" bar.
+  Widget? _queueBanner() {
+    final queue = widget.queue;
+    if (queue == null || queue.length == 0) return null;
+    final pending = queue.pendingRows.length;
+    final conflicts = queue.conflictRows.length;
+    final color = conflicts > 0
+        ? Theme.of(context).colorScheme.errorContainer
+        : Theme.of(context).colorScheme.secondaryContainer;
+    return Card(
+      color: color,
+      child: ListTile(
+        leading: Icon(conflicts > 0 ? Icons.report_problem : Icons.cloud_upload),
+        title: Text('Chờ gửi: $pending · Cần xử lý: $conflicts'),
+        subtitle: Text(conflicts > 0
+            ? 'Máy chủ từ chối $conflicts mục — xem lý do và làm lại.'
+            : 'Sẽ tự gửi khi có mạng trở lại.'),
+        onTap: widget.onOpenQueue,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final todo = _rows.where(_needsAction).toList();
     final done = _rows.where((r) => !_needsAction(r)).toList();
+    final banner = _queueBanner();
     return Scaffold(
       appBar: AppBar(title: const Text('Giao hàng')),
       body: RefreshIndicator(
@@ -160,6 +211,10 @@ class _DriverDeliveryScreenState extends State<DriverDeliveryScreen> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   if (_error != null) _ErrorCard(message: _error!),
+                  if (banner != null) ...[
+                    banner,
+                    const SizedBox(height: 12),
+                  ],
                   const Text('Ghi chú: OTP là xác nhận cuối cùng và xuất kho ngay. '
                       'Chữ ký / ảnh chỉ là "giao thành công tạm" — chủ đại lý duyệt mới xuất kho.'),
                   const SizedBox(height: 16),
@@ -233,11 +288,15 @@ class ConfirmDeliverySheet extends StatefulWidget {
     required this.erp,
     required this.order,
     this.deps = const DeliveryDeps(),
+    this.queue,
   });
 
   final ErpClient erp;
   final Map<String, dynamic> order;
   final DeliveryDeps deps;
+
+  /// Mốc 4 — where a delivery filed without a link goes to wait.
+  final OfflineQueue? queue;
 
   @override
   State<ConfirmDeliverySheet> createState() => _ConfirmDeliverySheetState();
@@ -312,19 +371,9 @@ class _ConfirmDeliverySheetState extends State<ConfirmDeliverySheet> {
     }
   }
 
-  Future<void> _submit() async {
-    // Online-only: filing a delivery moves stock and receivables server-side, and
-    // the offline queue does not exist until Mốc 4.
-    if (!isOnline.value) {
-      setState(() => _error = 'Đang offline — xác nhận giao hàng cần kết nối mạng.');
-      return;
-    }
-    setState(() {
-      _submitting = true;
-      _error = null;
-    });
-    try {
-      final result = await widget.erp.confirmDelivery(
+  /// The payload for this sheet. Built ONCE per submit so the queued copy is
+  /// exactly what a live attempt would have sent — same idempotency key.
+  Map<String, dynamic> _payload() => buildDeliveryPayload(
         salesOrder: widget.order['name'] as String? ?? '',
         method: _method,
         idempotencyKey: _idempotencyKey,
@@ -335,6 +384,21 @@ class _ConfirmDeliverySheetState extends State<ConfirmDeliverySheet> {
         gpsLatitude: _gps?.lat,
         gpsLongitude: _gps?.lng,
       );
+
+  Future<void> _submit() async {
+    final payload = _payload();
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    // Offline is a KNOWN state here, so the doomed round trip is skipped: the
+    // driver gets an answer now instead of after a connect timeout.
+    if (!isOnline.value) {
+      await _queueInstead(payload);
+      return;
+    }
+    try {
+      final result = await widget.erp.confirmDeliveryRaw(payload);
       if (!mounted) return;
       await showDialog<void>(
         context: context,
@@ -351,11 +415,58 @@ class _ConfirmDeliverySheetState extends State<ConfirmDeliverySheet> {
       );
       if (!mounted) return;
       Navigator.pop(context, true); // tell the list to refresh
+    } on OfflineFailure {
+      // The link died mid-flight. Same payload, same key: queue it instead of
+      // throwing the driver's work away.
+      await _queueInstead(payload);
     } on Exception catch (e) {
+      // The SERVER answered and refused — never queued. That decision is final
+      // (server wins) and retrying it automatically would only repeat it.
       if (!mounted) return;
       setState(() {
         _submitting = false;
         // Same sheet, same key: the retry is safe by construction.
+        _error = '$e';
+      });
+    }
+  }
+
+  /// Mốc 4 — the offline branch. Queued rows are replayed with THIS key, so the
+  /// server recognises a replay instead of filing a second delivery.
+  Future<void> _queueInstead(Map<String, dynamic> payload) async {
+    final queue = widget.queue;
+    if (queue == null) {
+      // No queue wired on this screen: refuse honestly rather than pretend.
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _error = 'Đang offline — chưa bật được hàng đợi ngoại tuyến cho màn này.';
+        });
+      }
+      return;
+    }
+    try {
+      await queue.enqueueDelivery(
+        salesOrder: payload['sales_order'] as String? ?? '',
+        idempotencyKey: _idempotencyKey,
+        payload: payload,
+      );
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Đã lưu, chờ có mạng'),
+          content: const Text('Bằng chứng giao hàng đã được lưu trên máy và sẽ tự gửi khi có '
+              'mạng trở lại. Chưa có phiếu xuất kho nào được tạo cho tới lúc đó.'),
+          actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng'))],
+        ),
+      );
+      if (!mounted) return;
+      Navigator.pop(context, true); // the list refreshes and shows the queue banner
+    } on QueueRejected catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
         _error = '$e';
       });
     }
@@ -393,22 +504,46 @@ class _ConfirmDeliverySheetState extends State<ConfirmDeliverySheet> {
               Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ],
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _submitting ? null : () => Navigator.pop(context, false),
-                    child: const Text('Huỷ'),
+            // The offline state is shown BEFORE the driver taps, and the button
+            // says what will actually happen (a queued row, not a sent one) —
+            // a driver who thinks he filed a delivery that never left the phone
+            // is exactly the failure this milestone exists to prevent.
+            ValueListenableBuilder<bool>(
+              valueListenable: isOnline,
+              builder: (_, online, _) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!online)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        'Đang offline — xác nhận sẽ được lưu trên máy và tự gửi khi có mạng.',
+                        style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      ),
+                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _submitting ? null : () => Navigator.pop(context, false),
+                          child: const Text('Huỷ'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: (_valid && !_submitting) ? _submit : null,
+                          child: Text(_submitting
+                              ? 'Đang gửi…'
+                              : online
+                                  ? 'Gửi xác nhận'
+                                  : 'Lưu chờ gửi'),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: (_valid && !_submitting) ? _submit : null,
-                    child: Text(_submitting ? 'Đang gửi…' : 'Gửi xác nhận'),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),

@@ -36,7 +36,7 @@ dependencies:
   shared_preferences: ^2.3.0
   flutter_secure_storage: ^9.2.4
   # Mốc 3 (driver proof of delivery). Both are wrapped behind injectable functions
-  # in delivery.dart so widget tests never touch the platform channels.
+  # in driver_delivery.dart so widget tests never touch the platform channels.
   image_picker: ^1.2.3
   # 13.x on purpose: geolocator 14 pulls geolocator_linux -> package_info_plus 10 ->
   # win32 ^6, which cannot resolve together with flutter_secure_storage 9

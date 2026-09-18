@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_dealer/core.dart';
 import 'package:mobile_dealer/driver_delivery.dart';
+import 'package:mobile_dealer/offline_queue.dart';
 import 'package:mobile_dealer/owner_dashboard.dart';
+import 'package:mobile_dealer/queue_screen.dart';
 import 'package:mobile_dealer/restore_session.dart';
 import 'package:mobile_dealer/session.dart';
 import 'package:mobile_dealer/settings_screen.dart';
@@ -13,11 +15,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 export 'package:mobile_dealer/core.dart'
     show
         ApiRejected,
+        AuthExpired,
         AuthResult,
         DeliveryResult,
         ErpClient,
         FinancialAction,
+        OfflineFailure,
         SubmitRejected,
+        buildDeliveryPayload,
         isOnline,
         looksLikeTokenPair,
         newIdempotencyKey,
@@ -32,6 +37,17 @@ export 'package:mobile_dealer/driver_delivery.dart'
         kMethodOtp,
         kMethodPhotoOnly,
         kMethodSignature;
+export 'package:mobile_dealer/offline_queue.dart'
+    show
+        FlushReport,
+        OfflineQueue,
+        QueueRejected,
+        QueuedMutation,
+        kOpDeliveryConfirm,
+        kQueuePrefKey,
+        kQueuedConflict,
+        kQueuedPending;
+export 'package:mobile_dealer/queue_screen.dart' show QueueScreen;
 
 void main() => runApp(const CamVietApp());
 
@@ -226,6 +242,7 @@ class HomeScreen extends StatefulWidget {
     required this.erp,
     this.fullName,
     this.deliveryDeps = const DeliveryDeps(),
+    this.queue,
   });
 
   final ErpClient erp;
@@ -235,6 +252,9 @@ class HomeScreen extends StatefulWidget {
   /// widget tree never touches a platform channel.
   final DeliveryDeps deliveryDeps;
 
+  /// Mốc 4 — tests inject a preloaded queue; the app builds its own from prefs.
+  final OfflineQueue? queue;
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -242,15 +262,133 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   static const _appRoles = {'Feed Dealer Manager', 'Feed Dealer Staff', 'Driver'};
 
+  /// How often a device that is OFFLINE knocks on the door again. The driver
+  /// should not have to open a screen for the queue to drain; 30 s is frequent
+  /// enough to feel automatic while connected to a farm link, and the timer only
+  /// runs while the app is offline.
+  static const _offlineRetry = Duration(seconds: 30);
+
   List<String> _serverRoles = const [];
   String _role = 'Feed Dealer Staff';
   String _status = 'Đang tải…';
   bool _loadingRoles = true;
 
+  OfflineQueue? _queue;
+  Timer? _offlineTimer;
+  FlushReport? _lastFlush;
+
   @override
   void initState() {
     super.initState();
-    _bootstrap();
+    unawaited(_bootstrap());
+    unawaited(_openQueue());
+    // Reacts to the truth, not to a guess: whenever a request proves the link is
+    // back, the queue drains immediately instead of on the next timer tick.
+    isOnline.addListener(_onConnectivityChanged);
+  }
+
+  @override
+  void dispose() {
+    isOnline.removeListener(_onConnectivityChanged);
+    _offlineTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Builds the queue (prefs-backed) and drains anything left over from a
+  /// previous run — the app may have been killed while rows were waiting.
+  Future<void> _openQueue() async {
+    final queue = widget.queue ??
+        OfflineQueue(
+          prefs: await SharedPreferences.getInstance(),
+          send: widget.erp.confirmDeliveryRaw,
+        );
+    await queue.load();
+    if (!mounted) return;
+    setState(() => _queue = queue);
+    if (queue.length > 0) await _flushQueue();
+  }
+
+  void _onConnectivityChanged() {
+    if (!mounted) return;
+    setState(() {});
+    if (isOnline.value) {
+      _offlineTimer?.cancel();
+      _offlineTimer = null;
+      unawaited(_flushQueue());
+      return;
+    }
+    // Nothing queued = nothing to sync: a timer would only keep the device
+    // awake and make widget tests end with a live timer.
+    if ((_queue?.length ?? 0) == 0) return;
+    _offlineTimer ??= Timer.periodic(_offlineRetry, (_) => unawaited(_flushQueue()));
+  }
+
+  /// One sync pass. Reports honestly: a pass that sent nothing because the link
+  /// was still down must NOT be shown as "đã đồng bộ".
+  Future<void> _flushQueue() async {
+    final queue = _queue;
+    if (queue == null || queue.pendingRows.isEmpty) return;
+    final report = await queue.flush();
+    if (!mounted) return;
+    setState(() => _lastFlush = report);
+    if (report.authExpired) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Phiên đăng nhập đã hết hạn — đăng nhập lại để gửi hàng đợi.')),
+      );
+    }
+  }
+
+  /// Tap on the connectivity icon: probe, then report what ACTUALLY happened
+  /// (the app must not claim a sync that did not take place).
+  Future<void> _retryFromUi() async {
+    final queue = _queue;
+    if (queue == null || queue.length == 0) {
+      setState(() => _status = 'Đang kiểm tra kết nối…');
+      await _loadSummary();
+      return;
+    }
+    if (queue.pendingRows.isEmpty) {
+      // Only conflicts left: retrying them is pointless (the server decided).
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Không còn mục nào chờ gửi — mục bị máy chủ từ chối cần bạn xử lý trong Hàng đợi.'),
+      ));
+      return;
+    }
+    await _flushQueue();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_flushSummary())));
+  }
+
+  /// A pass that sent nothing because the link was still down must never read as
+  /// "đã đồng bộ".
+  String _flushSummary() {
+    final report = _lastFlush;
+    if (report == null) return 'Không có gì để gửi.';
+    if (report.authExpired) return 'Phiên đăng nhập đã hết hạn — đăng nhập lại rồi gửi lại.';
+    if (report.offline) {
+      return 'Vẫn chưa có mạng — còn ${_queue?.pendingRows.length ?? 0} mục chờ gửi.';
+    }
+    final parts = <String>[];
+    if (report.sent > 0) parts.add('đã gửi ${report.sent}');
+    if (report.conflicts > 0) parts.add('${report.conflicts} bị máy chủ từ chối (xem Hàng đợi)');
+    return parts.isEmpty ? 'Không có gì để gửi.' : 'Kết quả: ${parts.join(', ')}.';
+  }
+
+  void _openQueueScreen() {
+    final queue = _queue;
+    if (queue == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hàng đợi đang khởi tạo — thử lại sau một giây.')),
+      );
+      return;
+    }
+    Navigator.of(context)
+        .push(MaterialPageRoute(
+          builder: (_) => QueueScreen(queue: queue, onRetry: _flushQueue),
+        ))
+        .then((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> _bootstrap() async {
@@ -292,13 +430,25 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Cám Việt'),
         actions: [
+          // Mốc 4: the offline state is DERIVED from real traffic, so the manual
+          // dev toggle is gone. Tapping retries the queue — the one action that
+          // can actually prove the link is back.
           ValueListenableBuilder<bool>(
             valueListenable: isOnline,
-            builder: (_, online, _) => IconButton(
-              onPressed: () => isOnline.value = !isOnline.value, // dev toggle until Mốc 4
-              icon: Icon(online ? Icons.cloud_done : Icons.cloud_off),
-              tooltip: online ? 'Online (bấm để mô phỏng offline)' : 'Offline (bấm để online)',
-            ),
+            builder: (_, online, _) {
+              final waiting = _queue?.length ?? 0;
+              return IconButton(
+                onPressed: _retryFromUi,
+                icon: Badge(
+                  isLabelVisible: waiting > 0,
+                  label: Text('$waiting'),
+                  child: Icon(online ? Icons.cloud_done : Icons.cloud_off),
+                ),
+                tooltip: online
+                    ? 'Đang kết nối${waiting > 0 ? ' — $waiting mục chờ gửi' : ''}'
+                    : 'Mất kết nối${waiting > 0 ? ' — $waiting mục chờ gửi' : ''}',
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.settings),
@@ -341,6 +491,14 @@ class _HomeScreenState extends State<HomeScreen> {
               enabled: _serverRoles.contains(r),
               onTap: () => _switchRole(r),
             ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.cloud_queue),
+            title: const Text('Hàng đợi ngoài tuyến'),
+            subtitle: Text('${_queue?.pendingRows.length ?? 0} chờ gửi · '
+                '${_queue?.conflictRows.length ?? 0} cần xử lý'),
+            onTap: _openQueueScreen,
+          ),
         ]),
       ),
       body: RefreshIndicator(
@@ -362,9 +520,20 @@ class _HomeScreenState extends State<HomeScreen> {
             FilledButton.icon(
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => DriverDeliveryScreen(erp: widget.erp, deps: widget.deliveryDeps),
+                  builder: (_) => DriverDeliveryScreen(
+                    erp: widget.erp,
+                    deps: widget.deliveryDeps,
+                    queue: _queue,
+                    onOpenQueue: _openQueueScreen,
+                  ),
                 ),
-              ),
+              ).then((_) {
+                // Coming back may have QUEUED a row: refresh the counter and arm
+                // the retry loop for it (the connectivity signal did not change).
+                if (!mounted) return;
+                setState(() {});
+                _onConnectivityChanged();
+              }),
               icon: const Icon(Icons.local_shipping),
               label: const Text('Giao hàng'),
             )

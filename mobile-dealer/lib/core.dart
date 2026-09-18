@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show SocketException;
 
 import 'package:flutter/foundation.dart' show kDebugMode, ValueNotifier;
 import 'package:http/http.dart' as http;
@@ -11,7 +13,32 @@ import 'package:http/http.dart' as http;
 /// * Server wins on conflict: failed/conflicting writes are surfaced, never
 ///   force-overwritten locally.
 /// * Every create carries an idempotency key ([newIdempotencyKey]).
+///
+/// [isOnline] is DERIVED from real traffic (Mốc 4): a request that never reached
+/// the server flips it off, any successful response flips it back on. An
+/// interface-state probe (`connectivity_plus`) would report "wifi connected" on
+/// a farm with a router but no uplink — the only trustworthy signal is whether
+/// a request actually completed.
 final ValueNotifier<bool> isOnline = ValueNotifier<bool>(true);
+
+/// The request never reached the server (dead link, DNS, timeout).
+///
+/// Kept distinct from [ApiRejected] on purpose: a payload the SERVER refused must
+/// never be queued for retry (that would loop forever on a decision that has
+/// already been made), while a payload that never arrived must be kept.
+class OfflineFailure implements Exception {
+  const OfflineFailure([this.message = 'Không kết nối được máy chủ', this.cause]);
+
+  /// What the user reads.
+  final String message;
+
+  /// The raw socket/timeout text, for logs only — never rendered (a
+  /// `SocketException: Failed host lookup` on screen helps nobody on a farm).
+  final String? cause;
+
+  @override
+  String toString() => message;
+}
 
 /// Server-side backstops from `feed_dealer.api`: the client stops earlier so a
 /// farm-network round trip is not spent on a payload the server must reject.
@@ -98,6 +125,28 @@ class ErpClient {
   String? sid;
   String? tokenPair; // '<api_key>:<api_secret>' when token auth succeeded
 
+  /// A dead link, not a refusal: the request never produced a server answer.
+  static bool isTransportFailure(Object error) =>
+      error is SocketException || error is http.ClientException || error is TimeoutException;
+
+  /// Runs one round trip and updates [isOnline] from the OUTCOME. Every network
+  /// call in this class goes through here — otherwise the offline flag would
+  /// depend on which screen happened to make the last request.
+  ///
+  /// A dead link is rethrown as [OfflineFailure] so every caller (the queue
+  /// above all) branches on ONE type instead of guessing at socket internals.
+  Future<T> _track<T>(Future<T> Function() call) async {
+    try {
+      final value = await call();
+      isOnline.value = true;
+      return value;
+    } on Exception catch (error) {
+      if (!isTransportFailure(error)) rethrow;
+      isOnline.value = false;
+      throw OfflineFailure('Không kết nối được máy chủ', '$error');
+    }
+  }
+
   Map<String, String> get _authHeaders => {
         if (sid != null) 'Cookie': 'sid=$sid',
         if (tokenPair != null) 'Authorization': 'token $tokenPair',
@@ -111,12 +160,12 @@ class ErpClient {
       return loginWithToken(user: user, pair: password);
     }
     try {
-      final res = await _http
+      final res = await _track(() => _http
           .post(
             Uri.parse('$baseUrl/api/method/login'),
             body: {'usr': user, 'pwd': password},
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 15)));
       if (res.statusCode == 200) {
         final data = _decodeObject(res);
         sid = RegExp(r'sid=([^;]+)').firstMatch(res.headers['set-cookie'] ?? '')?.group(1);
@@ -142,12 +191,12 @@ class ErpClient {
     final urlError = validateBaseUrl(baseUrl);
     if (urlError != null) return AuthResult(ok: false, error: urlError);
     try {
-      final res = await _http
+      final res = await _track(() => _http
           .get(
             Uri.parse('$baseUrl/api/method/frappe.auth.get_logged_user'),
             headers: {'Authorization': 'token $pair'},
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 15)));
       if (res.statusCode != 200) return const AuthResult(ok: false, error: 'Đăng nhập thất bại');
       tokenPair = pair;
       final data = _decodeObject(res);
@@ -181,9 +230,9 @@ class ErpClient {
 
   /// Authenticated GET of an /api/resource path (session or token headers).
   Future<dynamic> getResource(String path) async {
-    final res = await _http
+    final res = await _track(() => _http
         .get(Uri.parse('$baseUrl$path'), headers: _authHeaders)
-        .timeout(const Duration(seconds: 15));
+        .timeout(const Duration(seconds: 15)));
     if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}: ${res.body}');
     return jsonDecode(res.body);
   }
@@ -251,13 +300,13 @@ class ErpClient {
   /// [SubmitRejected] with the server's message. NEVER retried blindly and
   /// NEVER forced through locally (hard rule #2: server wins).
   Future<void> submitDoc(String doctype, String name) async {
-    final res = await _http
+    final res = await _track(() => _http
         .put(
           Uri.parse('$baseUrl/api/resource/${Uri.encodeComponent(doctype)}/${Uri.encodeComponent(name)}'),
           headers: {..._authHeaders, 'Content-Type': 'application/json'},
           body: jsonEncode({'docstatus': 1}),
         )
-        .timeout(const Duration(seconds: 15));
+        .timeout(const Duration(seconds: 15)));
     if (res.statusCode == 200) return;
     throw SubmitRejected(_serverMessage(res.body) ?? 'Máy chủ từ chối (HTTP ${res.statusCode})');
   }
@@ -305,33 +354,38 @@ class ErpClient {
     double? gpsLatitude,
     double? gpsLongitude,
     String? notes,
-  }) async {
-    // Built by mutation, not with collection-`if`: an absent value must be truly
-    // ABSENT (never an empty string the server has to special-case), and the
-    // analyzer's `use_null_aware_elements` rule rejects the inline form.
-    final payload = <String, dynamic>{
-      'sales_order': salesOrder,
-      'confirmation_method': method,
-      'idempotency_key': idempotencyKey,
-    };
-    void put(String key, String? value) {
-      if (value != null && value.isNotEmpty) payload[key] = value;
-    }
+  }) =>
+      confirmDeliveryRaw(buildDeliveryPayload(
+        salesOrder: salesOrder,
+        method: method,
+        idempotencyKey: idempotencyKey,
+        otpCode: otpCode,
+        noOtpReason: noOtpReason,
+        signaturePng: signaturePng,
+        photos: photos,
+        gpsLatitude: gpsLatitude,
+        gpsLongitude: gpsLongitude,
+        notes: notes,
+      ));
 
-    put('otp_code', otpCode);
-    put('no_otp_reason', noOtpReason);
-    put('signature_png', signaturePng);
-    put('notes', notes);
-    if (photos.isNotEmpty) payload['photos'] = photos;
-    if (gpsLatitude != null) payload['gps_latitude'] = gpsLatitude;
-    if (gpsLongitude != null) payload['gps_longitude'] = gpsLongitude;
-    final res = await _http
+  /// The same write, driven by a STORED payload (Mốc 4 — offline queue replay).
+  ///
+  /// Live filing and queued replay share ONE wire path, and the payload travels
+  /// byte-for-byte as it was queued — idempotency key included. That is exactly
+  /// what makes retrying safe: the server recognises the key and hands back the
+  /// record it already has instead of creating a second one.
+  ///
+  /// A 401 (session gone) is [AuthExpired], NOT a refusal of the payload: the
+  /// queued row must survive and the user must log in again.
+  Future<DeliveryResult> confirmDeliveryRaw(Map<String, dynamic> payload) async {
+    final res = await _track(() => _http
         .post(
           Uri.parse('$baseUrl/api/method/feed_dealer.api.confirm_delivery'),
           headers: _authHeaders,
           body: {'payload': jsonEncode(payload)},
         )
-        .timeout(const Duration(seconds: 60));
+        .timeout(const Duration(seconds: 60)));
+    if (res.statusCode == 401) throw const AuthExpired();
     if (res.statusCode != 200) {
       throw ApiRejected(_serverMessage(res.body) ?? 'Máy chủ từ chối (HTTP ${res.statusCode})');
     }
@@ -358,6 +412,47 @@ class ErpClient {
   }
 }
 
+/// Builds the wire payload for ONE delivery confirmation.
+///
+/// Extracted (Mốc 4) because the offline queue must store byte-for-byte what a
+/// live attempt would have sent, idempotency key included. Two builders — one
+/// live, one for the queue — would eventually disagree, and the difference would
+/// only show up as a duplicate delivery on a real site.
+///
+/// Built by mutation, not with collection-`if`: an absent value must be truly
+/// ABSENT (never an empty string the server has to special-case), and the
+/// analyzer's `use_null_aware_elements` rule rejects the inline form.
+Map<String, dynamic> buildDeliveryPayload({
+  required String salesOrder,
+  required String method,
+  required String idempotencyKey,
+  String? otpCode,
+  String? noOtpReason,
+  String? signaturePng,
+  List<String> photos = const [],
+  double? gpsLatitude,
+  double? gpsLongitude,
+  String? notes,
+}) {
+  final payload = <String, dynamic>{
+    'sales_order': salesOrder,
+    'confirmation_method': method,
+    'idempotency_key': idempotencyKey,
+  };
+  void put(String key, String? value) {
+    if (value != null && value.isNotEmpty) payload[key] = value;
+  }
+
+  put('otp_code', otpCode);
+  put('no_otp_reason', noOtpReason);
+  put('signature_png', signaturePng);
+  put('notes', notes);
+  if (photos.isNotEmpty) payload['photos'] = photos;
+  if (gpsLatitude != null) payload['gps_latitude'] = gpsLatitude;
+  if (gpsLongitude != null) payload['gps_longitude'] = gpsLongitude;
+  return payload;
+}
+
 /// Server refused a write (validation, permission, stock...). The message is the
 /// server's own text — shown verbatim, never replaced by a local guess.
 class ApiRejected implements Exception {
@@ -366,6 +461,12 @@ class ApiRejected implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// The session is gone (HTTP 401). NOT a refusal of the work item: the queued row
+/// stays queued, the sync stops, and the app asks for a fresh login.
+class AuthExpired extends ApiRejected {
+  const AuthExpired([super.message = 'Phiên đăng nhập đã hết hạn — đăng nhập lại']);
 }
 
 /// What the server did with a proof of delivery (Mốc 3).

@@ -747,18 +747,20 @@ void main() {
       expect(payloadOf(sent[1])['idempotency_key'], payloadOf(sent[0])['idempotency_key']);
     });
 
-    testWidgets('offline: filing a delivery is refused locally, nothing is sent',
+    testWidgets('offline WITHOUT a queue wired: refuses honestly, nothing is sent',
         (tester) async {
+      // A screen that never got a queue must not silently drop the driver's
+      // work — but it must not pretend to queue it either.
       final sent = <Map<String, dynamic>>[];
       final erp = app.ErpClient(baseUrl: 'https://x.example', client: driverErp(sent));
       await openSheet(tester, erp);
 
       await tester.enterText(find.byType(TextField), '123456');
       await tester.pumpAndSettle();
-      app.isOnline.value = false; // simulate the dev toggle / a dead link
+      app.isOnline.value = false; // a dead link, as the connectivity tracker sees it
       await tapSubmit(tester);
 
-      expect(find.textContaining('xác nhận giao hàng cần kết nối mạng'), findsOneWidget);
+      expect(find.textContaining('chưa bật được hàng đợi ngoại tuyến'), findsOneWidget);
       expect(sent, isEmpty);
       app.isOnline.value = true;
     });
@@ -809,5 +811,263 @@ void main() {
       // And it is NOT offered as an action (only a rejected delivery can be re-filed).
       expect(find.text('Xác nhận giao'), findsNothing);
     });
+
+    testWidgets('Mốc 4: offline filing is QUEUED with the sheet key, nothing is sent',
+        (tester) async {
+      final sent = <Map<String, dynamic>>[];
+      final erp = app.ErpClient(baseUrl: 'https://x.example', client: driverErp(sent));
+      final queue = app.OfflineQueue(
+        prefs: await _emptyPrefs(),
+        send: erp.confirmDeliveryRaw, // the real wire path, mocked underneath
+      );
+      await tester.pumpWidget(MaterialApp(
+        home: app.DriverDeliveryScreen(erp: erp, queue: queue),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Xác nhận giao'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), '123456');
+      await tester.pumpAndSettle();
+      app.isOnline.value = false;
+      // The button SAYS what will happen (a queued row, not a sent one).
+      expect(find.text('Lưu chờ gửi'), findsOneWidget);
+      expect(find.textContaining('xác nhận sẽ được lưu trên máy'), findsOneWidget);
+      await tester.tap(find.text('Lưu chờ gửi'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Đã lưu, chờ có mạng'), findsOneWidget);
+      expect(sent, isEmpty, reason: 'offline: no request may leave the device');
+      expect(queue.pendingRows.single.entityId, 'SAL-ORD-2026-00300');
+      expect(queue.pendingRows.single.idempotencyKey, isNotEmpty);
+
+      await tester.tap(find.text('Đóng'));
+      await tester.pumpAndSettle();
+      // Back on the list the driver sees what is still owed to the server.
+      expect(find.textContaining('Chờ gửi: 1'), findsOneWidget);
+      app.isOnline.value = true;
+    });
+
+    testWidgets('Mốc 4: a link that dies MID-FLIGHT is queued, not lost', (tester) async {
+      // isOnline is still true when the driver taps (the last request worked),
+      // and the connection drops while the payload is on the wire. The exact
+      // case a driver hits at the edge of the farm's wifi.
+      final client = MockClient((req) async {
+        if (req.url.path == '/api/method/feed_dealer.api.driver_deliveries') {
+          return _json({'message': [orderRow]});
+        }
+        if (req.url.path == '/api/method/feed_dealer.api.confirm_delivery') {
+          throw http.ClientException('connection closed before full header was received');
+        }
+        return http.Response('{"exc": ["nope"]}', 404);
+      });
+      final erp = app.ErpClient(baseUrl: 'https://x.example', client: client);
+      final queue = app.OfflineQueue(prefs: await _emptyPrefs(), send: erp.confirmDeliveryRaw);
+      await tester.pumpWidget(MaterialApp(home: app.DriverDeliveryScreen(erp: erp, queue: queue)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Xác nhận giao'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '123456');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Gửi xác nhận'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Đã lưu, chờ có mạng'), findsOneWidget);
+      expect(queue.pendingRows.length, 1);
+    });
   });
+
+  group('Mốc 4 — offline queue rules', () {
+    final payload = <String, dynamic>{
+      'sales_order': 'SAL-ORD-2026-00300',
+      'confirmation_method': 'OTP',
+      'idempotency_key': 'k-1',
+    };
+
+    test('a money operation can NOT enter the queue (hard rule #2)', () async {
+      final queue = app.OfflineQueue(
+        prefs: await _emptyPrefs(),
+        send: (_) async => throw StateError('the queue must never send this'),
+      );
+      await expectLater(
+        queue.enqueue(app.QueuedMutation(
+          id: 'x1',
+          operation: 'payment_entry',
+          entity: 'Payment Entry',
+          entityId: 'PE-0001',
+          payload: const {},
+          createdAt: DateTime.now(),
+          idempotencyKey: 'k-money',
+        )),
+        throwsA(isA<app.QueueRejected>()),
+      );
+      expect(queue.length, 0, reason: 'nothing financial is ever stored offline');
+    });
+
+    test('the same order is not queued twice, and an oversized payload is refused', () async {
+      final queue = app.OfflineQueue(
+        prefs: await _emptyPrefs(),
+        send: (_) async => throw const app.OfflineFailure(),
+      );
+      await queue.enqueueDelivery(
+        salesOrder: 'SAL-ORD-2026-00300',
+        idempotencyKey: 'k-1',
+        payload: payload,
+      );
+      await expectLater(
+        queue.enqueueDelivery(
+          salesOrder: 'SAL-ORD-2026-00300',
+          idempotencyKey: 'k-1b',
+          payload: payload,
+        ),
+        throwsA(isA<app.QueueRejected>()),
+      );
+      final huge = <String, dynamic>{...payload, 'photos': [List.filled(3000001, 'x').join()]};
+      await expectLater(
+        queue.enqueueDelivery(
+          salesOrder: 'SAL-ORD-2026-00999',
+          idempotencyKey: 'k-2',
+          payload: huge,
+        ),
+        throwsA(isA<app.QueueRejected>()),
+      );
+      expect(queue.length, 1);
+    });
+
+    test('flush sends the STORED idempotency key and clears the row', () async {
+      final sent = <Map<String, dynamic>>[];
+      final queue = app.OfflineQueue(
+        prefs: await _emptyPrefs(),
+        send: (p) async {
+          sent.add(p);
+          return const app.DeliveryResult(
+            name: 'DEL-1',
+            status: 'Giao thành công',
+            pendingOwnerApproval: false,
+          );
+        },
+      );
+      await queue.enqueueDelivery(
+        salesOrder: 'SAL-ORD-2026-00300',
+        idempotencyKey: 'k-1',
+        payload: payload,
+      );
+      final report = await queue.flush();
+
+      expect(report.sent, 1);
+      expect(sent.single['idempotency_key'], 'k-1');
+      expect(queue.length, 0, reason: 'the server has it; the key prevents a double');
+    });
+
+    test('a dead link keeps rows pending, bumps retry_count and stops the pass', () async {
+      var calls = 0;
+      final queue = app.OfflineQueue(
+        prefs: await _emptyPrefs(),
+        send: (_) async {
+          calls += 1;
+          throw const app.OfflineFailure();
+        },
+      );
+      await queue.enqueueDelivery(
+        salesOrder: 'SAL-ORD-2026-00300',
+        idempotencyKey: 'k-1',
+        payload: payload,
+      );
+      await queue.enqueueDelivery(
+        salesOrder: 'SAL-ORD-2026-00301',
+        idempotencyKey: 'k-2',
+        payload: {...payload, 'sales_order': 'SAL-ORD-2026-00301', 'idempotency_key': 'k-2'},
+      );
+      final report = await queue.flush();
+
+      expect(report.offline, isTrue);
+      expect(report.attempted, 1, reason: 'walking the rest of a dead link helps nobody');
+      expect(calls, 1);
+      expect(queue.pendingRows.length, 2, reason: 'no work is lost');
+      expect(queue.pendingRows.first.retryCount, 1);
+    });
+
+    test('a server refusal becomes a CONFLICT with its message and is never auto-retried', () async {
+      final queue = app.OfflineQueue(
+        prefs: await _emptyPrefs(),
+        send: (_) async => throw const app.ApiRejected('Đơn hàng đã có xác nhận giao hàng'),
+      );
+      await queue.enqueueDelivery(
+        salesOrder: 'SAL-ORD-2026-00300',
+        idempotencyKey: 'k-1',
+        payload: payload,
+      );
+      final first = await queue.flush();
+      expect(first.conflicts, 1);
+      expect(queue.conflictRows.single.lastError, 'Đơn hàng đã có xác nhận giao hàng');
+
+      final second = await queue.flush();
+      expect(second.attempted, 0, reason: 'server-wins: that decision is final');
+      expect(queue.pendingRows, isEmpty);
+    });
+
+    test('an expired session keeps the row and asks for a fresh login', () async {
+      final queue = app.OfflineQueue(
+        prefs: await _emptyPrefs(),
+        send: (_) async => throw const app.AuthExpired(),
+      );
+      await queue.enqueueDelivery(
+        salesOrder: 'SAL-ORD-2026-00300',
+        idempotencyKey: 'k-1',
+        payload: payload,
+      );
+      final report = await queue.flush();
+
+      expect(report.authExpired, isTrue);
+      expect(queue.needsLogin, isTrue);
+      expect(queue.pendingRows.length, 1, reason: 'a 401 is not a refusal of the work');
+    });
+
+    test('rows survive an app restart (reloaded from prefs)', () async {
+      final prefs = await _emptyPrefs();
+      final first = app.OfflineQueue(prefs: prefs, send: (_) async => throw const app.OfflineFailure());
+      await first.enqueueDelivery(
+        salesOrder: 'SAL-ORD-2026-00300',
+        idempotencyKey: 'k-1',
+        payload: payload,
+      );
+
+      final second = app.OfflineQueue(prefs: prefs, send: (_) async => throw const app.OfflineFailure());
+      await second.load();
+      expect(second.pendingRows.single.entityId, 'SAL-ORD-2026-00300');
+      expect(second.pendingRows.single.idempotencyKey, 'k-1');
+    });
+
+    testWidgets('the queue screen shows the server reason and can discard the row',
+        (tester) async {
+      final queue = app.OfflineQueue(
+        prefs: await _emptyPrefs(),
+        send: (_) async => throw const app.ApiRejected('Tồn kho không đủ'),
+      );
+      await queue.enqueueDelivery(
+        salesOrder: 'SAL-ORD-2026-00300',
+        idempotencyKey: 'k-1',
+        payload: payload,
+      );
+      await queue.flush();
+
+      await tester.pumpWidget(MaterialApp(home: app.QueueScreen(queue: queue)));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Máy chủ từ chối: Tồn kho không đủ'), findsOneWidget);
+      expect(find.textContaining('hệ thống không tự gửi lại'), findsOneWidget);
+
+      await tester.tap(find.text('Bỏ'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Bỏ'));
+      await tester.pumpAndSettle();
+      expect(queue.length, 0);
+    });
+  });
+}
+
+/// A mutable prefs map: `SharedPreferences.setMockInitialValues(const {})` makes
+/// every WRITE throw "Cannot modify an unmodifiable map" — measured on CI.
+Future<SharedPreferences> _emptyPrefs() async {
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+  return SharedPreferences.getInstance();
 }
