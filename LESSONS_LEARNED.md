@@ -238,6 +238,8 @@ Mỗi mục dưới đây đều đã **xảy ra thật trong phiên 2026-09-16*
 
 58. **frappe_docker: backend và frontend (nginx) KHÔNG dùng chung assets — file tĩnh app mới 404 dù app chạy bình thường.** `sites/assets` + symlink app chỉ tồn tại bên backend; frontend có bản assets riêng trong image. Đo 2026-09-18: 404 cả 5 icon → `docker cp` vào `frappe_docker-frontend-1:/home/frappe/frappe-bench/assets/<app>/` → 200. `bench link-assets` không tồn tại; fix bền (rebuild image/volume) là quyết định của chủ infra. Verify bằng HTTP status + content-type + mở bytes bằng PIL, không tin `ls` trong container.
 
+59. **Dọn tool trên sandbox: `rm -rf` xong phải verify — husk root-owned và symlink đứt không tự biến mất.** Đo 2026-09-18: `/google/flutter` xoá 1.1GB nội dung xong vẫn còn thư mục rỗng owner root (cần `sudo rmdir`); `adb` là symlink đứt còn sót sau khi gỡ package (dpkg chỉ xoá file thật). Verify bằng `which` + `ls -d`, không tin exit 0 của rm.
+
 ---
 
 ## Quy tắc mang đi (tóm tắt 1 dòng mỗi bài)

@@ -351,3 +351,20 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 - Bài học 57 (role_name vs role), 58 (frappe_docker assets split) + skill §4 cập nhật.
 - Treo mới: không. Treo cũ: P1E BLOCKED chờ sandbox; go-live checklist tài khoản thật.
 - Commits: `6981fcc` (P1G/P2 perf + test accounts) → `adde787` (icon + Cám Việt + branding).
+
+## [2026-09-18 ~02:20 UTC] GH Actions debug APK + xoá Android tools local
+- **Chính sách mới của chủ (không hỏi lại):** CẤM build APK local; mọi build qua GH Actions
+  (gradle trực tiếp, không keystore, không EAS). Token GH đọc từ `.agent/gh_token`
+  (git-ignored, chmod 600) — không hỏi user lần nữa.
+- **Xoá local (verify từng bước):** `/google/flutter` 1.1GB (husk root-owned cần sudo rmdir),
+  `~/.pub-cache`, `~/.dart*`, `/opt/gradle`, `/usr/lib/android-sdk`, `/usr/bin/adb` (symlink đứt).
+  `which flutter dart adb` → rỗng.
+- **Scaffold `mobile/`** (camviet, vn.appcam): login ERPNext + multi-role + FinancialAction.guard
+  (cấm tiền khi offline) + offline queue idempotent. Golden matrix Gradle 9.3.1/AGP 9.1.0/Kotlin 2.4.0.
+- **Workflow** `.github/workflows/build-debug-apk.yml`: `./gradlew assembleDebug --no-daemon`,
+  Java 17, local.properties sinh trong CI, artifact `camviet-debug-apk` (14 ngày).
+- **Push:** secrets scan sạch (repo PUBLIC) → rename master→main → push one-shot bằng token →
+  `8dda6ce`. **Run đã kích hoạt:** Build Debug APK · head 8dda6ce · in_progress
+  (github.com/hoangsoft90/app_cam/actions/runs/35298515190) — không chờ theo yêu cầu.
+- Simplenote lessons: kho trống (`[]`) — đọc theo yêu cầu, không có bài học build nào để tham khảo.
+- Skill mới: `camviet-gh-apk-build` (3 chính sách cứng + push flow + verify run).

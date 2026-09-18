@@ -1,0 +1,54 @@
+RESULT — GH Actions debug APK pipeline + xoá Android tools local (2026-09-18 ~02:20 UTC)
+=========================================================================================
+
+Status: DONE (workflow đã kích hoạt — không chờ build xong theo yêu cầu)
+
+## Bằng chứng từng bước
+
+1. **Simplenote lessons**: đọc trước khi làm theo yêu cầu — search
+   "flutter apk github actions" → `[]`, list_tags → `[]` (kho trống, không có
+   bài học build nào để tham khảo; kiến thức build dùng skill
+   `flutter-android-build` golden matrix + skill project §10).
+2. **Xoá Android dev tools local** (verify bằng `which` + `ls` sau mỗi bước):
+   - `/google/flutter` (1.1 GB) → xoá nội dung + husk (cần sudo rmdir)
+   - `~/.pub-cache`, `~/.dart`, `~/.dart-tool`, `~/.config/flutter`
+   - `/opt/gradle`, `/usr/lib/android-sdk` (leftover distro)
+   - `/usr/bin/adb` (symlink đứt từ `android-sdk-platform-tools-common`,
+     gói đã remove trước đó nhưng symlink còn)
+   - Kết quả: `which flutter dart adb` → không còn gì; ALL_CLEAN
+3. **Scaffold app** `mobile/` (trước khi xoá SDK): `flutter create
+   --platforms=android --org vn.appcam --project-name camviet mobile`.
+   Matrix đúng golden: Gradle 9.3.1 / AGP 9.1.0 / Kotlin 2.4.0.
+   `lib/main.dart`: login ERPNext, multi-role switcher (Manager/Staff/Driver),
+   FinancialAction.guard() cấm mutation tiền khi offline, offline queue +
+   idempotency key (sửa bug Object().hashCode — dùng monotonic seq).
+4. **Workflow** `.github/workflows/build-debug-apk.yml`: gradle TRỰC TIẾP
+   `./gradlew assembleDebug --no-daemon` (không EAS, không keystore),
+   Java 17, local.properties sinh trong CI, artifact `camviet-debug-apk`
+   (14 ngày, if-no-files-found: error).
+5. **Secrets scan trước push** (repo public): grep ghp_/gh_token/ERPNEXT_API
+   trong tracked files → sạch. Token lưu `.agent/gh_token` (chmod 600,
+   git-ignored — verify bằng git check-ignore). Remote origin = URL SẠCH.
+6. **Push**: rename master→main, add remote, push one-shot bằng token →
+   `* [new branch] main -> main`, head `8dda6ce`.
+7. **Workflow đã kích hoạt** (GitHub API, không chờ):
+   `Build Debug APK | head=8dda6ce | status=in_progress | conclusion=None`
+   https://github.com/hoangsoft90/app_cam/actions/runs/35298515190
+
+## Commit (git log -1 thật)
+
+- 8dda6ce677df9e1ee1af64e8fa65cfe9fa49c9e6 feat(P2): Flutter mobile app
+  scaffold (Cám Việt) + GH Actions debug APK workflow (gradle direct)
+
+## Skill mới
+
+`.agents/skills/camviet-gh-apk-build/SKILL.md` — 3 chính sách cứng (cấm build
+local; build APK chỉ qua GH Actions gradle trực tiếp; token đọc từ
+.agent/gh_token không hỏi lại), repo facts, checklist workflow, cách verify
+trigger + đọc log khi fail, secrets discipline trước mỗi lần push.
+
+## Treo
+
+- Build đang in_progress trên GH (không chờ theo yêu cầu). Nếu đỏ → đọc log
+  jobs qua API, sửa, push lại (push tự re-trigger).
+- P1E e-invoice vẫn BLOCKED chờ sandbox.
