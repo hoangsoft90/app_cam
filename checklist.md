@@ -161,9 +161,12 @@ Legend: `[x]` đã làm CÓ BẰNG CHỨNG · `[~]` làm một phần · `[ ]` c
       sẽ báo "có wifi" ở chuồng trại có router nhưng mất uplink). Server-wins: payload bị server TỪ CHỐI
       không bao giờ được tự gửi lại → thành `conflict` + giữ nguyên câu thông báo của server; 401
       (`AuthExpired`) thì GIỮ row và yêu cầu đăng nhập lại, không đánh dấu chết.
-      CI `35320908195` **success**: `No issues found` (analyze) + `50 tests passed` (+10 test Mốc 4,
-      trước là 40) + artifact `camviet-debug-apk` 80.704.960 B (`BUILD SUCCESSFUL in 3m 38s`).
-      Commit `882fa0b` → `0bb7054` → `dde05c7`.
+      CI trên revision cuối `35321618950` **success**: `No issues found` (analyze) + `52 tests passed`
+      (+12 test Mốc 4, trước là 40) + artifact `camviet-debug-apk` 80.709.671 B
+      (`BUILD SUCCESSFUL in 4m 2s`). Commit `882fa0b` → `0bb7054` → `dde05c7` → `211ca4f`.
+      Tự review tìm thêm 1 lỗ hổng thật đã vá: row hỏng trong prefs làm
+      `QueuedMutation.fromJson` ném **TypeError (Error — `on FormatException` không bắt)** ⇒ app chết
+      ngay lúc mở; nay kiểm shape trước khi dựng object, row hỏng bị bỏ qua (2 test mới phủ).
       - [x] Acceptance #5 (offline confirm → sync khi có mạng, không trùng): key sinh 1 lần trong sheet,
             row giữ nguyên key đó khi replay; **3 lớp chống trùng** — client từ chối xếp cùng đơn 2 lần,
             cùng key khi gửi lại, và server (T7 của `p2_delivery_acceptance`) trả bản ghi đã có.

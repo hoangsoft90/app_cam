@@ -7,8 +7,9 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
 - [2026-09-18] **P2 Mốc 4 — Offline queue + sync engine + conflict log. ĐÃ TEST trên CI, ĐÃ COMMIT**
   — hash dán nguyên văn từ `git log -1 --format='%H %s'`:
   ```
-  dde05c773fc9650b139b5c53905fa84e1c024044 fix(P2-M4): pump a frame before asserting the offline button label
+  211ca4f8f698ddc6bdd3cff6e3124f23dd2bfacc harden(P2-M4): a corrupt queue row must not kill the launch
   ```
+  (chuỗi commit của Mốc 4: `882fa0b` → `0bb7054` → `dde05c7` → `211ca4f`)
   File mới: `lib/offline_queue.dart` (model + hàng đợi + flush) và `lib/queue_screen.dart` (UI).
   **Quyết định tự chốt (ghi lý do theo yêu cầu "tự quyết − an toàn nhất"):**
   1. **`isOnline` suy ra từ kết quả request thật**, KHÔNG dùng `connectivity_plus`. Lý do: probe interface
@@ -26,9 +27,14 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
      một lần sync treo. Đây là đánh đổi có chủ đích — ghi lại để người sau biết đã cân nhắc.
   6. Timer gửi lại **chỉ chạy khi đang offline VÀ có row chờ** (30s/lần) — không giữ máy thức vô ích,
      và cũng là điều kiện để widget test không kết thúc với timer sống.
-  Bằng chứng CI (số lấy từ GitHub API): run `35320908195` **success** — `No issues found` (analyze),
-  `50 tests passed` (Mốc 3 là 40; +10 test mới cho Mốc 4), artifact `camviet-debug-apk`
-  **80.704.960 B**, `BUILD SUCCESSFUL in 3m 38s`.
+  Bằng chứng CI trên **revision cuối** (số lấy từ GitHub API, không từ trí nhớ): run `35321618950`
+  **success** — `No issues found` (analyze), **`52 tests passed`** (Mốc 3 là 40; +12 test Mốc 4),
+  artifact `camviet-debug-apk` **80.709.671 B**, `BUILD SUCCESSFUL in 4m 2s`.
+  **Lỗ hổng do tự review tìm ra và đã vá (không phải CI bắt):** `QueuedMutation.fromJson` được gọi
+  thẳng từ dữ liệu lưu trên máy — một row hỏng làm `as String` ném **TypeError (Error, không phải
+  Exception)** ⇒ `on FormatException` KHÔNG bắt, app chết ngay lúc mở lên và không có đường thoát.
+  Đã chuyển sang kiểm shape rồi MỚI dựng object, row hỏng bị bỏ qua (không phải xoá cả hàng đợi), và
+  blob không đọc được thì bỏ toàn bộ. 2 test mới phủ đúng 2 ca này.
   Lỗi tự gây trong lượt này (đều do CI bắt, đã sửa): lint `prefer_initializing_formals` (Dart không cho
   tham số named bắt đầu bằng `_`) ⇒ đổi field thành public `prefs`/`send`; và **assert `Lưu chờ gửi`
   trước khi `pump()`** — nhãn nút nằm trong `ValueListenableBuilder` nên chỉ đổi ở frame kế tiếp.
