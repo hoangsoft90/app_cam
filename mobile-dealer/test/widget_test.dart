@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:mobile_dealer/driver_delivery.dart';
+// Re-exports offline_queue (OfflineQueue, QueueRejected, …) for the Mốc 4 tests.
 import 'package:mobile_dealer/main.dart' as app;
 import 'package:mobile_dealer/owner_dashboard.dart';
 import 'package:mobile_dealer/restore_session.dart';
@@ -1075,6 +1076,51 @@ void main() {
       final queue = app.OfflineQueue(prefs: prefs, send: (_) async => throw const app.OfflineFailure());
       await queue.load();
       expect(queue.length, 0);
+    });
+
+    test('a second flush does not run while one is in flight (double-send guard)', () async {
+      // Review finding: timer + connectivity flip + manual button can all fire
+      // around the same moment; two passes over the SAME rows would send the
+      // same payload twice (the server dedupes, but the retry bookkeeping
+      // corrupts and `sent` double-counts).
+      final slow = app.OfflineQueue(
+        prefs: await _emptyPrefs(),
+        send: (_) async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return const app.DeliveryResult(
+              name: 'DEL-1', status: 'Giao thành công', pendingOwnerApproval: false);
+        },
+      );
+      await slow.enqueueDelivery(
+        salesOrder: 'SAL-ORD-2026-00300',
+        idempotencyKey: 'k-1',
+        payload: payload,
+      );
+      // First pass still uploading when the second starts.
+      final results = await Future.wait([slow.flush(), slow.flush()]);
+      expect(results.first.sent, 1, reason: 'the in-flight pass does the work');
+      expect(results.last.sent, 0, reason: 'the overlapping pass is a no-op');
+      expect(slow.length, 0, reason: 'the row is delivered exactly once');
+    });
+
+    test('discard is refused while a flush is in flight (no undoing a pass)', () async {
+      final queue = app.OfflineQueue(
+        prefs: await _emptyPrefs(),
+        send: (_) async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return const app.DeliveryResult(
+              name: 'DEL-1', status: 'Giao thành công', pendingOwnerApproval: false);
+        },
+      );
+      final row = await queue.enqueueDelivery(
+        salesOrder: 'SAL-ORD-2026-00300',
+        idempotencyKey: 'k-1',
+        payload: payload,
+      );
+      final uploading = queue.flush();
+      await expectLater(queue.discard(row.id), throwsA(isA<app.QueueRejected>()));
+      await uploading;
+      expect(queue.length, 0, reason: 'the row was delivered, not resurrected by a mid-flight discard');
     });
 
     testWidgets('the queue screen shows the server reason and can discard the row',

@@ -176,6 +176,18 @@ class OfflineQueue {
   final List<QueuedMutation> _rows = [];
   bool _loaded = false;
 
+  /// Guards against two overlapping flush passes.
+  ///
+  /// Review finding: nothing stopped a second `flush()` from starting while the
+  /// first was still awaiting a 60 s upload. The timer (30 s, offline), the
+  /// connectivity listener and the manual button can all fire around the same
+  /// moment; two passes over the SAME rows send the same payload TWICE. The
+  /// idempotency key makes the server refuse the double (one record, not two),
+  /// but the retry-count bookkeeping still corrupts and `sent` would be
+  /// double-counted. Cheapest correct answer: a pass in progress wins, later
+  /// callers get a no-op report.
+  bool _flushing = false;
+
   /// Set when a pass stopped on an expired session: the UI must send the user
   /// back to the login screen instead of retrying forever.
   bool needsLogin = false;
@@ -280,12 +292,21 @@ class OfflineQueue {
   }
 
   /// Drops a row (conflict the user gave up on, or a stuck pending one).
+  ///
+  /// NOT allowed while a flush is in flight: the pass iterates `ordered`, a
+  /// snapshot list — removing a row from `_rows` mid-flight lets the pass put a
+  /// DELETED row back via `_replace` and save it (the discard is undone), and a
+  /// delivered row that was just discarded would be reported as sent.
   Future<void> discard(String id) async {
+    if (_flushing) {
+      throw const QueueRejected('Đang gửi hàng đợi — thử lại sau khi lần gửi này xong.');
+    }
     _rows.removeWhere((r) => r.id == id);
     await _save();
   }
 
-  /// Sends every pending row, oldest first.
+  /// Sends every pending row, oldest first. Serialized: a pass already in
+  /// flight wins and later callers get a no-op report (see `_flushing`).
   ///
   /// Outcome per row:
   ///   * delivered        → row removed (the server has it; the key makes a
@@ -297,6 +318,20 @@ class OfflineQueue {
   ///                        and is never retried on its own (server wins)
   Future<FlushReport> flush() async {
     await load();
+    if (_flushing) {
+      // A pass is already in flight (the 30 s timer fires while a manual retry
+      // is uploading, or back-to-back connectivity flips). One queue, one pass.
+      return const FlushReport();
+    }
+    _flushing = true;
+    try {
+      return await _flushLocked();
+    } finally {
+      _flushing = false;
+    }
+  }
+
+  Future<FlushReport> _flushLocked() async {
     needsLogin = false;
     var sent = 0;
     var conflicts = 0;
@@ -309,6 +344,9 @@ class OfflineQueue {
       attempted += 1;
       try {
         await send(row.payload);
+        // Remove by id, not by object: `_replace` may have swapped the instance
+        // in `_rows`... it cannot here (each row is touched once), but an id
+        // match is the only remove that is correct under ANY future edit.
         _rows.removeWhere((r) => r.id == row.id);
         sent += 1;
         await _save();

@@ -50,7 +50,15 @@ class _QueueScreenState extends State<QueueScreen> {
       ),
     );
     if (confirmed != true) return;
-    await widget.queue.discard(row.id);
+    try {
+      await widget.queue.discard(row.id);
+    } on QueueRejected catch (e) {
+      // A flush is mid-flight (its uploads can take up to 60 s each); discarding
+      // during one would corrupt the pass. The message tells the user why.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      return;
+    }
     if (mounted) setState(() {});
   }
 

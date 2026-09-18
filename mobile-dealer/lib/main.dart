@@ -296,16 +296,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Builds the queue (prefs-backed) and drains anything left over from a
   /// previous run — the app may have been killed while rows were waiting.
+  ///
+  /// Review fix (the duplicate-queue hole): every route INTO HomeScreen — auto
+  /// login, manual login, Settings session change — built a NEW OfflineQueue
+  /// over the same prefs key. Two queues would both flush the same rows (double
+  /// upload attempts; counters disagreeing). The queue instance now lives in a
+  /// static and every HomeScreen reuses it.
+  static OfflineQueue? _sharedQueue;
+
   Future<void> _openQueue() async {
-    final queue = widget.queue ??
-        OfflineQueue(
-          prefs: await SharedPreferences.getInstance(),
-          send: widget.erp.confirmDeliveryRaw,
-        );
+    final queue = _sharedQueue ??= OfflineQueue(
+      prefs: await SharedPreferences.getInstance(),
+      send: widget.erp.confirmDeliveryRaw,
+    );
     await queue.load();
     if (!mounted) return;
     setState(() => _queue = queue);
-    if (queue.length > 0) await _flushQueue();
+    if (queue.pendingRows.isNotEmpty && isOnline.value) await _flushQueue();
   }
 
   void _onConnectivityChanged() {
@@ -314,7 +321,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (isOnline.value) {
       _offlineTimer?.cancel();
       _offlineTimer = null;
-      unawaited(_flushQueue());
+      // Review fix: only a queue that EXISTS can drain. At cold start the flag
+      // is `true` by default, and _bootstrap()'s first successful request flips
+      // the listener BEFORE _openQueue() has built the queue — the flush then
+      // was a no-op and leftover rows sat until the next manual retry.
+      if (_queue != null) unawaited(_flushQueue());
       return;
     }
     // Nothing queued = nothing to sync: a timer would only keep the device
@@ -325,6 +336,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// One sync pass. Reports honestly: a pass that sent nothing because the link
   /// was still down must NOT be shown as "đã đồng bộ".
+  ///
+  /// Review fix for the 401 hole: the flush used to stop on `AuthExpired` with
+  /// only a snackbar — while every later pass would keep hammering the server
+  /// with doomed requests until it got rate-limited. Now an expired session
+  /// drops the user back to the Login screen (queued rows survive on disk and
+  /// resume after a fresh login).
   Future<void> _flushQueue() async {
     final queue = _queue;
     if (queue == null || queue.pendingRows.isEmpty) return;
@@ -334,6 +351,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (report.authExpired) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Phiên đăng nhập đã hết hạn — đăng nhập lại để gửi hàng đợi.')),
+      );
+      await Future<void>.delayed(const Duration(seconds: 2)); // let the snackbar show
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
       );
     }
   }
@@ -353,6 +376,20 @@ class _HomeScreenState extends State<HomeScreen> {
         content: Text('Không còn mục nào chờ gửi — mục bị máy chủ từ chối cần bạn xử lý trong Hàng đợi.'),
       ));
       return;
+    }
+    if (!isOnline.value) {
+      // Probe with a cheap read instead of claiming anything: the flag only
+      // flips when a request actually proves the link's state.
+      setState(() => _status = 'Đang thử kết nối…');
+      try {
+        await widget.erp.loggedUser();
+      } on Exception {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Vẫn chưa có mạng — hàng đợi sẽ tự gửi khi kết nối trở lại.'),
+        ));
+        return;
+      }
     }
     await _flushQueue();
     if (!mounted) return;

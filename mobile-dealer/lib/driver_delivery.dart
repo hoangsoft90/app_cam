@@ -387,16 +387,19 @@ class _ConfirmDeliverySheetState extends State<ConfirmDeliverySheet> {
 
   Future<void> _submit() async {
     final payload = _payload();
-    setState(() {
-      _submitting = true;
-      _error = null;
-    });
-    // Offline is a KNOWN state here, so the doomed round trip is skipped: the
-    // driver gets an answer now instead of after a connect timeout.
+    // Review fix (TOCTOU): the OFFLINE branch below queues without sending. If
+    // the link returns DURING the queue write, the row stays queued while the
+    // app is actually online — it would then sit there until the next flush.
+    // Re-check after the await: online now ⇒ try the live send (same key), and
+    // only queue when the send itself fails.
     if (!isOnline.value) {
       await _queueInstead(payload);
       return;
     }
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
     try {
       final result = await widget.erp.confirmDeliveryRaw(payload);
       if (!mounted) return;
@@ -417,7 +420,8 @@ class _ConfirmDeliverySheetState extends State<ConfirmDeliverySheet> {
       Navigator.pop(context, true); // tell the list to refresh
     } on OfflineFailure {
       // The link died mid-flight. Same payload, same key: queue it instead of
-      // throwing the driver's work away.
+      // throwing the driver's work away. (`_queueInstead` re-checks the flag:
+      // if the link is already back, it retries the live send.)
       await _queueInstead(payload);
     } on Exception catch (e) {
       // The SERVER answered and refused — never queued. That decision is final
@@ -433,6 +437,11 @@ class _ConfirmDeliverySheetState extends State<ConfirmDeliverySheet> {
 
   /// Mốc 4 — the offline branch. Queued rows are replayed with THIS key, so the
   /// server recognises a replay instead of filing a second delivery.
+  ///
+  /// Re-checks [isOnline] first (review fix, TOCTOU): the flag may have flipped
+  /// back ON while the driver was filling the sheet or while a mid-flight send
+  /// was failing. Online ⇒ retry the live send with the SAME payload; only an
+  /// actually-offline state (or a refused live retry) queues the row.
   Future<void> _queueInstead(Map<String, dynamic> payload) async {
     final queue = widget.queue;
     if (queue == null) {
@@ -444,6 +453,32 @@ class _ConfirmDeliverySheetState extends State<ConfirmDeliverySheet> {
         });
       }
       return;
+    }
+    if (isOnline.value) {
+      // The link came back between the failure and this call. One retry through
+      // the normal path (same key ⇒ server-side dedupe holds). No loop: this
+      // call happens at most once per submit.
+      try {
+        final result = await widget.erp.confirmDeliveryRaw(payload);
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(result.isFinal ? 'Đã giao' : 'Đã gửi, chờ duyệt'),
+            content: Text(result.isFinal
+                ? 'Hệ thống đã tạo phiếu xuất kho ${result.deliveryNote ?? ''} và ghi nhận công nợ.'
+                : 'Tài xế đã ghi bằng chứng. Chủ đại lý duyệt xong mới xuất kho — '
+                    'trạng thái hiện tại: ${result.status}.'),
+            actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng'))],
+          ),
+        );
+        if (!mounted) return;
+        Navigator.pop(context, true);
+        return;
+      } on Exception {
+        // Still no link (or the server refused again): fall through to queueing,
+        // where a REFUSED payload is correctly refused locally too.
+      }
     }
     try {
       await queue.enqueueDelivery(
