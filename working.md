@@ -368,3 +368,22 @@ Task đang làm / đã xong gần đây. Format ngày: `YYYY-MM-DD` (ISO). Dọn
   (github.com/hoangsoft90/app_cam/actions/runs/35298515190) — không chờ theo yêu cầu.
 - Simplenote lessons: kho trống (`[]`) — đọc theo yêu cầu, không có bài học build nào để tham khảo.
 - Skill mới: `camviet-gh-apk-build` (3 chính sách cứng + push flow + verify run).
+
+## [2026-09-18 ~03:00 UTC] VIỆC D + E — checklist sync; P2 Mốc 1 DONE (CI xanh)
+- **Quyết định tự quyết (theo quyền chủ dự án đã cấp):** Android-only cho P2 — nhóm dùng Android 100%,
+  không có phản hồi khác trong lúc làm. Ghi rõ: iOS làm bổ sung riêng sau này, không chặn P2.
+- **VIỆC D:** `checklist.md` đồng bộ thực tế — P0.5/P1G/drop cột rác/perf → `[x]` kèm commit hash;
+  P2 test accounts chuyển "cần chủ" → đã tạo; thêm mục C2 với 6 mốc P2.
+- **Đổi tên codebase:** `mobile/` → `mobile-dealer/`, package `mobile_dealer` (đúng prompt P2 "1
+  codebase mobile-dealer"); label Android = "Cám Việt"; workflow + artifact paths sửa theo.
+- **Mốc 1 DONE (commit `d793c64`):** login 2 đường (password → sid cookie, fallback API
+  key:secret token), lỗi auth map tiếng Việt qua `exc` (không tin `Message` English);
+  fetch roles từ SERVER (parse 2 shape payload) → switcher disable role không được cấp;
+  role đã chọn restore chỉ khi server vẫn cấp (server-wins cả ở UI state);
+  `sid` gửi lại qua header Cookie (http package không có cookie jar).
+- **Bằng chứng:** unit test MockClient 9 test (guard offline, key unique, login OK/fail/token/
+  network, roles 2 shape, session restore) — CI `Unit tests` PASS trong run `35300989583`;
+  `flutter analyze` sạch; **run GREEN**, artifact `camviet-debug-apk` 72.367.871 B.
+- UI thao tác tay (màn hình thật) chưa chụp được — sẽ bổ sung ảnh chụp ở Mốc 6 khi có máy thật,
+  đúng tinh thần "mô tả bằng chứng thao tác tay thay vì tự nhận PASS".
+- DỪNG theo mốc: chờ review trước khi làm Mốc 2 (Owner dashboard).
